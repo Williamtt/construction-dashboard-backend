@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { projectController } from '../modules/project/index.js'
+import { fileController } from '../modules/file/index.js'
 import { scheduleAdjustmentsRouter } from './schedule-adjustments.js'
 
 export const projectsRouter = Router()
@@ -13,6 +14,9 @@ projectsRouter.post('/', asyncHandler(projectController.create.bind(projectContr
 
 /** 工期調整（須在 /:id 之前掛載，否則會被 :id 吃掉） */
 projectsRouter.use('/:projectId/schedule-adjustments', scheduleAdjustmentsRouter)
+
+/** GET /api/v1/projects/:projectId/files — 專案附件列表（須在 /:id 之前） */
+projectsRouter.get('/:projectId/files', asyncHandler(fileController.listByProject.bind(fileController)))
 
 /** GET /api/v1/projects/:id — 單一專案（含專案資訊欄位） */
 projectsRouter.get('/:id', asyncHandler(projectController.getById.bind(projectController)))

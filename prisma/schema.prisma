@@ -46,6 +46,28 @@ model User {
 
   tenant        Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   projectMembers ProjectMember[]
+  attachments   Attachment[]
+}
+
+// ---------- 附件（檔案上傳 metadata，實體存儲存層）----------
+model Attachment {
+  id            String    @id @default(cuid())
+  projectId     String    @map("project_id")
+  tenantId      String?   @map("tenant_id")
+  storageKey    String    @map("storage_key")
+  fileName      String    @map("file_name")
+  fileSize      Int       @map("file_size")
+  mimeType      String    @map("mime_type")
+  fileHash      String?   @map("file_hash")
+  category      String?   @map("category")
+  businessId    String?   @map("business_id")
+  uploadedById  String    @map("uploaded_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedBy User   @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
 }
 
 // ---------- 專案 ----------
@@ -75,6 +97,7 @@ model Project {
   tenant              Tenant?                  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   projectMembers      ProjectMember[]
   scheduleAdjustments ProjectScheduleAdjustment[]
+  attachments         Attachment[]
 }
 
 // ---------- 工期調整（專案內展延／停工申請與核定）----------

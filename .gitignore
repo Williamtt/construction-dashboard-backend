@@ -20,3 +20,7 @@ npm-debug.log*
 .DS_Store
 
 /src/generated/prisma
+
+# 本地上傳檔案儲存目錄（勿提交）
+storage
+uploads
