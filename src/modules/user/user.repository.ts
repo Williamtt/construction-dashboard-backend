@@ -5,6 +5,7 @@ const userSelect = {
   email: true,
   name: true,
   systemRole: true,
+  memberType: true,
   tenantId: true,
   createdAt: true,
   updatedAt: true,
@@ -15,6 +16,7 @@ export type UserListItem = {
   email: string
   name: string | null
   systemRole: string
+  memberType: string
   tenantId: string | null
   createdAt: Date
   updatedAt: Date
@@ -53,6 +55,7 @@ export const userRepository = {
     passwordHash: string
     name: string | null
     systemRole: string
+    memberType: string
     tenantId: string | null
   }) {
     return prisma.user.create({
@@ -61,6 +64,7 @@ export const userRepository = {
         passwordHash: data.passwordHash,
         name: data.name,
         systemRole: data.systemRole as 'platform_admin' | 'tenant_admin' | 'project_user',
+        memberType: data.memberType || 'internal',
         tenantId: data.tenantId,
       },
       select: userSelect,

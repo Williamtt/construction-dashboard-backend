@@ -14,6 +14,11 @@ model Tenant {
   id        String    @id @default(cuid())
   name      String
   slug      String?   @unique
+  status    String    @default("active") // active | suspended
+  expiresAt DateTime? @map("expires_at")
+  userLimit Int?      @map("user_limit")       // 人員上限（未來）
+  fileSizeLimitMb Int? @map("file_size_limit_mb") // 單筆上傳 MB（未來）
+  storageQuotaMb  Int? @map("storage_quota_mb")   // 總儲存 MB（未來）
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -34,6 +39,7 @@ model User {
   passwordHash String     @map("password_hash")
   name         String?
   systemRole   SystemRole @default(project_user) @map("system_role")
+  memberType   String     @default("internal") @map("member_type") // internal | external
   tenantId     String?    @map("tenant_id")
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
@@ -53,8 +59,39 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  tenant         Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-  projectMembers ProjectMember[]
+  // 專案資訊（契約／工程基本資料）
+  designUnit     String?   @map("design_unit")      // 設計單位
+  supervisionUnit String?  @map("supervision_unit")  // 監造單位
+  contractor     String?  @map("contractor")        // 施工廠商
+  summary        String?  @map("summary")          // 工程概要
+  benefits       String?  @map("benefits")          // 工程效益
+  startDate      DateTime? @map("start_date")       // 開工日期
+  plannedEndDate DateTime? @map("planned_end_date")  // 預定完工日期（原訂）
+  revisedEndDate  DateTime? @map("revised_end_date") // 變更竣工日期（依工期調整後；未變更則 null）
+  siteManager    String?  @map("site_manager")      // 工地負責人
+  contactPhone   String?  @map("contact_phone")    // 聯絡電話
+  projectStaff   String?  @map("project_staff")    // 專案工程人員
+
+  tenant              Tenant?                  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  projectMembers      ProjectMember[]
+  scheduleAdjustments ProjectScheduleAdjustment[]
+}
+
+// ---------- 工期調整（專案內展延／停工申請與核定）----------
+model ProjectScheduleAdjustment {
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  applyDate    DateTime @map("apply_date")   // 申請日期
+  type         String   @map("type")         // extension | suspension | other
+  applyDays    Int      @map("apply_days")   // 申請天數
+  approvedDays Int      @map("approved_days") // 核定天數
+  status       String   @map("status")       // pending | approved | rejected
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_schedule_adjustments")
 }
 
 // ---------- 專案成員（使用者－專案－角色）----------

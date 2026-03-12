@@ -10,5 +10,23 @@ export const createProjectSchema = z.object({
 
 export type CreateProjectBody = z.infer<typeof createProjectSchema>
 
-export const updateProjectSchema = createProjectSchema.partial()
+const projectInfoSchema = z.object({
+  name: z.string().min(1, '專案名稱為必填').optional(),
+  description: z.string().optional().nullable(),
+  code: z.string().optional().nullable(),
+  status: z.enum(['active', 'archived']).optional(),
+  designUnit: z.string().optional().nullable(),
+  supervisionUnit: z.string().optional().nullable(),
+  contractor: z.string().optional().nullable(),
+  summary: z.string().optional().nullable(),
+  benefits: z.string().optional().nullable(),
+  startDate: z.string().optional().nullable(), // ISO date
+  plannedEndDate: z.string().optional().nullable(),
+  revisedEndDate: z.string().optional().nullable(), // 變更竣工日期
+  siteManager: z.string().optional().nullable(),
+  contactPhone: z.string().optional().nullable(),
+  projectStaff: z.string().optional().nullable(),
+})
+
+export const updateProjectSchema = projectInfoSchema.partial()
 export type UpdateProjectBody = z.infer<typeof updateProjectSchema>

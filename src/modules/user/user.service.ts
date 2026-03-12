@@ -34,6 +34,7 @@ export const userService = {
       passwordHash,
       name: data.name ?? null,
       systemRole: data.systemRole ?? 'project_user',
+      memberType: data.memberType ?? 'internal',
       tenantId: data.tenantId ?? null,
     })
   },
