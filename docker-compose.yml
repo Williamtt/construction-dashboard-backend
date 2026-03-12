@@ -1,0 +1,30 @@
+# ============================================
+# Docker Compose - PostgreSQL（本地開發用）
+# ============================================
+# 啟動：docker compose up -d
+# 停止：docker compose down
+# 連線：postgresql://postgres:postgres@localhost:5435/construction_dashboard
+# ============================================
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: construction-dashboard-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: construction_dashboard
+      TZ: Asia/Taipei
+    ports:
+      - "5435:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d construction_dashboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pg_data:
