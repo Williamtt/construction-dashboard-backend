@@ -162,6 +162,23 @@ platformAdminRouter.patch(
   })
 )
 
+/** DELETE /api/v1/platform-admin/tenants/:id — 刪除租戶（僅 platform_admin；關聯使用者／專案 tenantId 設為 null） */
+platformAdminRouter.delete(
+  '/tenants/:id',
+  asyncHandler(async (req: Request, res: Response) => {
+    const id = typeof req.params.id === 'string' ? req.params.id : req.params.id?.[0]
+    if (!id) {
+      throw new AppError(400, 'BAD_REQUEST', '缺少租戶 id')
+    }
+    const tenant = await prisma.tenant.findUnique({ where: { id } })
+    if (!tenant) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該租戶')
+    }
+    await prisma.tenant.delete({ where: { id } })
+    res.status(200).json({ data: { id } })
+  })
+)
+
 /** GET /api/v1/platform-admin/projects — 全部專案（可依 tenantId 篩選，含所屬租戶名稱） */
 platformAdminRouter.get('/projects', async (req: Request, res: Response) => {
   try {
@@ -213,6 +230,23 @@ platformAdminRouter.get('/projects', async (req: Request, res: Response) => {
     })
   }
 })
+
+/** DELETE /api/v1/platform-admin/projects/:id — 刪除專案（僅 platform_admin） */
+platformAdminRouter.delete(
+  '/projects/:id',
+  asyncHandler(async (req: Request, res: Response) => {
+    const projectId = req.params.id
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true },
+    })
+    if (!project) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該專案')
+    }
+    await prisma.project.delete({ where: { id: projectId } })
+    res.status(200).json({ data: { id: projectId } })
+  })
+)
 
 /** GET /api/v1/platform-admin/users — 全部使用者（可依 tenantId / systemRole / memberType 篩選） */
 platformAdminRouter.get('/users', async (req: Request, res: Response) => {
@@ -273,6 +307,27 @@ platformAdminRouter.get('/users', async (req: Request, res: Response) => {
     })
   }
 })
+
+/** DELETE /api/v1/platform-admin/users/:id — 刪除使用者（僅 platform_admin；不可刪除自己） */
+platformAdminRouter.delete(
+  '/users/:id',
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = req.user!
+    const targetId = req.params.id
+    if (targetId === user.id) {
+      throw new AppError(400, 'BAD_REQUEST', '無法刪除自己的帳號')
+    }
+    const target = await prisma.user.findUnique({
+      where: { id: targetId },
+      select: { id: true },
+    })
+    if (!target) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該使用者')
+    }
+    await prisma.user.delete({ where: { id: targetId } })
+    res.status(200).json({ data: { id: targetId } })
+  })
+)
 
 /** PATCH /api/v1/platform-admin/users/:id/password — 平台管理員重設使用者密碼 */
 platformAdminRouter.patch(

@@ -67,6 +67,35 @@ export const fileRepository = {
     }) as Promise<AttachmentRecord | null>
   },
 
+  /** 依 ID 列表查詢（用於相簿照片列表），保持 createdAt 順序需由呼叫端傳入已排序的 ids */
+  async findManyByIds(ids: string[]) {
+    if (ids.length === 0) return { items: [], total: 0 }
+    const items = await prisma.attachment.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        projectId: true,
+        tenantId: true,
+        storageKey: true,
+        fileName: true,
+        fileSize: true,
+        mimeType: true,
+        fileHash: true,
+        category: true,
+        businessId: true,
+        uploadedById: true,
+        createdAt: true,
+        uploadedBy: { select: { name: true } },
+      },
+    })
+    const orderMap = new Map(ids.map((id, i) => [id, i]))
+    items.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0))
+    return {
+      items: items as (AttachmentRecord & { uploadedBy: { name: string | null } })[],
+      total: items.length,
+    }
+  },
+
   async findByProjectId(projectId: string, args: { skip: number; take: number; category?: string }) {
     const where = { projectId, ...(args.category ? { category: args.category } : {}) }
     const [items, total] = await Promise.all([

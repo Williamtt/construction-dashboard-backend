@@ -14,10 +14,12 @@ export const createUserSchema = z.object({
 
 export type CreateUserBody = z.infer<typeof createUserSchema>
 
+const userStatusEnum = z.enum(['active', 'suspended'])
 export const updateUserSchema = z.object({
   name: z.string().optional(),
   systemRole: systemRoleEnum.optional(),
   memberType: memberTypeEnum.optional(),
+  status: userStatusEnum.optional(),
 })
 export type UpdateUserBody = z.infer<typeof updateUserSchema>
 

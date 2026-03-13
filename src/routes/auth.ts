@@ -3,8 +3,11 @@ import rateLimit from 'express-rate-limit'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcrypt'
 import { prisma } from '../lib/db.js'
+import { storage } from '../lib/storage/index.js'
 import { loginSchema, changePasswordSchema } from '../schemas/auth.js'
 import { authMiddleware } from '../middleware/auth.js'
+import { AppError } from '../shared/errors.js'
+import { asyncHandler } from '../shared/utils/async-handler.js'
 import { loginLogRepository } from '../modules/login-log/login-log.repository.js'
 import { isMaintenanceMode } from '../middleware/maintenance.js'
 
@@ -56,6 +59,15 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
 
     const user = await prisma.user.findUnique({
       where: { email: parsed.data.email },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        systemRole: true,
+        tenantId: true,
+        passwordHash: true,
+        status: true,
+      },
     })
 
     if (!user) {
@@ -89,6 +101,24 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
         .catch((e) => console.error('LoginLog create', e))
       res.status(401).json({
         error: { code: 'UNAUTHORIZED', message: 'Email 或密碼錯誤' },
+      })
+      return
+    }
+
+    // 帳號已停用者不得登入
+    if (user.status === 'suspended') {
+      loginLogRepository
+        .create({
+          userId: user.id,
+          email: user.email,
+          success: false,
+          ipAddress: getClientIp(req),
+          userAgent: getClientUserAgent(req),
+          failureReason: 'account_suspended',
+        })
+        .catch((e) => console.error('LoginLog create', e))
+      res.status(403).json({
+        error: { code: 'ACCOUNT_SUSPENDED', message: '帳號已停用，無法登入。請聯絡管理員。' },
       })
       return
     }
@@ -170,6 +200,62 @@ authRouter.get('/me', authMiddleware, (req: Request, res: Response) => {
   }
   res.status(200).json({ data: req.user })
 })
+
+/** GET /api/v1/auth/me/tenant-branding — 當前使用者所屬租戶的品牌（名稱、是否有 Logo），供 header 顯示，僅需登入 */
+authRouter.get(
+  '/me/tenant-branding',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) {
+      throw new AppError(401, 'UNAUTHORIZED', '未登入')
+    }
+    const tenantId = req.user.tenantId ?? null
+    if (!tenantId) {
+      res.status(200).json({ data: { name: null, hasLogo: false } })
+      return
+    }
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, logoStorageKey: true },
+    })
+    if (!tenant) {
+      res.status(200).json({ data: { name: null, hasLogo: false } })
+      return
+    }
+    res.status(200).json({
+      data: {
+        name: tenant.name,
+        hasLogo: !!tenant.logoStorageKey,
+      },
+    })
+  })
+)
+
+/** GET /api/v1/auth/me/tenant-logo — 當前使用者所屬租戶的 Logo 圖片（stream），僅需登入 */
+authRouter.get(
+  '/me/tenant-logo',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) {
+      throw new AppError(401, 'UNAUTHORIZED', '未登入')
+    }
+    const tenantId = req.user.tenantId ?? null
+    if (!tenantId) {
+      throw new AppError(404, 'NOT_FOUND', '無所屬租戶')
+    }
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { logoStorageKey: true },
+    })
+    if (!tenant?.logoStorageKey) {
+      throw new AppError(404, 'NOT_FOUND', '尚未設定公司 Logo')
+    }
+    const { stream, contentType } = await storage.getStream(tenant.logoStorageKey)
+    res.setHeader('Cache-Control', 'private, max-age=300')
+    if (contentType) res.setHeader('Content-Type', contentType)
+    stream.pipe(res)
+  })
+)
 
 /** PATCH /api/v1/auth/me/password — 變更目前使用者的密碼（需 Authorization） */
 authRouter.patch('/me/password', authMiddleware, async (req: Request, res: Response) => {

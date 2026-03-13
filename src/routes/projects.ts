@@ -5,6 +5,8 @@ import { fileController } from '../modules/file/index.js'
 import { formTemplateController } from '../modules/form-template/index.js'
 import { uploadSingleFile } from '../middleware/upload.js'
 import { scheduleAdjustmentsRouter } from './schedule-adjustments.js'
+import { albumsRouter } from './albums.js'
+import { photoFavoriteController } from '../modules/photo-favorite/index.js'
 
 export const projectsRouter = Router()
 
@@ -25,6 +27,14 @@ projectsRouter.get('/:projectId/form-templates', asyncHandler(formTemplateContro
 
 /** POST /api/v1/projects/:projectId/form-templates — 專案新增表單樣板（multipart: file, name, description） */
 projectsRouter.post('/:projectId/form-templates', uploadSingleFile, asyncHandler(formTemplateController.createForProject.bind(formTemplateController)))
+
+/** 相簿（照片管理） */
+projectsRouter.use('/:projectId/albums', albumsRouter)
+
+/** 我的最愛（個人，他人不可見） */
+projectsRouter.get('/:projectId/photo-favorites', asyncHandler(photoFavoriteController.list.bind(photoFavoriteController)))
+projectsRouter.post('/:projectId/photo-favorites', asyncHandler(photoFavoriteController.add.bind(photoFavoriteController)))
+projectsRouter.delete('/:projectId/photo-favorites/:attachmentId', asyncHandler(photoFavoriteController.remove.bind(photoFavoriteController)))
 
 /** GET /api/v1/projects/:id — 單一專案（含專案資訊欄位） */
 projectsRouter.get('/:id', asyncHandler(projectController.getById.bind(projectController)))

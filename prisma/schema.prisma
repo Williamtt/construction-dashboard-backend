@@ -11,16 +11,17 @@ datasource db {
 
 // ---------- 租戶（多租戶時使用；單租戶可僅一筆或固定 id）----------
 model Tenant {
-  id        String    @id @default(cuid())
-  name      String
-  slug      String?   @unique
-  status    String    @default("active") // active | suspended
-  expiresAt DateTime? @map("expires_at")
-  userLimit Int?      @map("user_limit")       // 人員上限（未來）
-  fileSizeLimitMb Int? @map("file_size_limit_mb") // 單筆上傳 MB（未來）
-  storageQuotaMb  Int? @map("storage_quota_mb")   // 總儲存 MB（未來）
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String    @id @default(cuid())
+  name             String
+  slug             String?   @unique
+  logoStorageKey   String?   @map("logo_storage_key") // 公司 logo 儲存鍵
+  status           String    @default("active") // active | suspended
+  expiresAt        DateTime? @map("expires_at")
+  userLimit        Int?      @map("user_limit")       // 人員上限（未來）
+  fileSizeLimitMb  Int?      @map("file_size_limit_mb") // 單筆上傳 MB（未來）
+  storageQuotaMb   Int?      @map("storage_quota_mb")   // 總儲存 MB（未來）
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   users         User[]
   projects      Project[]
@@ -41,17 +42,19 @@ model User {
   name         String?
   systemRole   SystemRole @default(project_user) @map("system_role")
   memberType   String     @default("internal") @map("member_type") // internal | external
+  status       String     @default("active") @map("status") // active | suspended（停用後無法登入）
   tenantId     String?    @map("tenant_id")
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  tenant            Tenant?            @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenant            Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   projectMembers    ProjectMember[]
   attachments       Attachment[]
   formTemplates     FormTemplate[]
   loginLogs         LoginLog[]
   auditLogs         AuditLog[]
   announcementReads AnnouncementRead[]
+  photoFavorites    UserPhotoFavorite[]
 }
 
 // ---------- 登入紀錄（平台監控用）----------
@@ -179,10 +182,27 @@ model Attachment {
   uploadedById  String    @map("uploaded_by_id")
   createdAt     DateTime  @default(now()) @map("created_at")
 
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  uploadedBy User   @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  project          Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedBy       User                 @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  albumPhotos      AlbumPhoto[]
+  userPhotoFavorites UserPhotoFavorite[]
 
   @@map("attachments")
+}
+
+// ---------- 使用者照片最愛（個人，他人不可見）----------
+model UserPhotoFavorite {
+  userId       String   @map("user_id")
+  attachmentId String   @map("attachment_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attachment Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, attachmentId])
+  @@index([userId])
+  @@index([attachmentId])
+  @@map("user_photo_favorites")
 }
 
 // ---------- 專案 ----------
@@ -215,6 +235,29 @@ model Project {
   scheduleAdjustments ProjectScheduleAdjustment[]
   attachments         Attachment[]
   formTemplates       FormTemplate[]
+  photoAlbums         PhotoAlbum[]
+}
+
+// ---------- 相簿（專案內照片管理：圖庫／相簿）----------
+model PhotoAlbum {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  name      String   @map("name")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  albumPhotos AlbumPhoto[]
+}
+
+model AlbumPhoto {
+  albumId      String @map("album_id")
+  attachmentId String @map("attachment_id")
+
+  album      PhotoAlbum @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  attachment Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+
+  @@id([albumId, attachmentId])
+  @@map("album_photos")
 }
 
 // ---------- 工期調整（專案內展延／停工申請與核定）----------
