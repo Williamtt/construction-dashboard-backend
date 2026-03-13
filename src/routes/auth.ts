@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcrypt'
 import { prisma } from '../lib/db.js'
-import { loginSchema } from '../schemas/auth.js'
+import { loginSchema, changePasswordSchema } from '../schemas/auth.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { loginLogRepository } from '../modules/login-log/login-log.repository.js'
 import { isMaintenanceMode } from '../middleware/maintenance.js'
@@ -169,4 +169,54 @@ authRouter.get('/me', authMiddleware, (req: Request, res: Response) => {
     return
   }
   res.status(200).json({ data: req.user })
+})
+
+/** PATCH /api/v1/auth/me/password — 變更目前使用者的密碼（需 Authorization） */
+authRouter.patch('/me/password', authMiddleware, async (req: Request, res: Response) => {
+  if (!req.user) {
+    res.status(401).json({
+      error: { code: 'UNAUTHORIZED', message: '未登入' },
+    })
+    return
+  }
+  try {
+    const parsed = changePasswordSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: '欄位驗證失敗',
+          details: parsed.error.flatten(),
+        },
+      })
+      return
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+    })
+    if (!user) {
+      res.status(401).json({
+        error: { code: 'UNAUTHORIZED', message: '未登入' },
+      })
+      return
+    }
+    const valid = await bcrypt.compare(parsed.data.currentPassword, user.passwordHash)
+    if (!valid) {
+      res.status(400).json({
+        error: { code: 'INVALID_PASSWORD', message: '目前密碼錯誤' },
+      })
+      return
+    }
+    const passwordHash = await bcrypt.hash(parsed.data.newPassword, 10)
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { passwordHash },
+    })
+    res.status(200).json({ data: { ok: true } })
+  } catch (e) {
+    console.error('PATCH /auth/me/password', e)
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: '變更密碼失敗' },
+    })
+  }
 })
