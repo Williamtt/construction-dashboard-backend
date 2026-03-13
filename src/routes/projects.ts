@@ -2,6 +2,8 @@ import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { projectController } from '../modules/project/index.js'
 import { fileController } from '../modules/file/index.js'
+import { formTemplateController } from '../modules/form-template/index.js'
+import { uploadSingleFile } from '../middleware/upload.js'
 import { scheduleAdjustmentsRouter } from './schedule-adjustments.js'
 
 export const projectsRouter = Router()
@@ -17,6 +19,12 @@ projectsRouter.use('/:projectId/schedule-adjustments', scheduleAdjustmentsRouter
 
 /** GET /api/v1/projects/:projectId/files — 專案附件列表（須在 /:id 之前） */
 projectsRouter.get('/:projectId/files', asyncHandler(fileController.listByProject.bind(fileController)))
+
+/** GET /api/v1/projects/:projectId/form-templates — 專案可見表單樣板（預設+專案） */
+projectsRouter.get('/:projectId/form-templates', asyncHandler(formTemplateController.listForProject.bind(formTemplateController)))
+
+/** POST /api/v1/projects/:projectId/form-templates — 專案新增表單樣板（multipart: file, name, description） */
+projectsRouter.post('/:projectId/form-templates', uploadSingleFile, asyncHandler(formTemplateController.createForProject.bind(formTemplateController)))
 
 /** GET /api/v1/projects/:id — 單一專案（含專案資訊欄位） */
 projectsRouter.get('/:id', asyncHandler(projectController.getById.bind(projectController)))

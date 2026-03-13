@@ -1,5 +1,5 @@
 /**
- * 單租後台 API：專案管理、成員管理、租戶資訊（限定本租戶）
+ * 單租後台 API：專案管理、成員管理、租戶資訊、表單樣板（限定本租戶）
  * 需 authMiddleware + requireAdmin（tenant_admin 或 platform_admin）
  */
 import { Router, type Request, type Response } from 'express'
@@ -7,6 +7,8 @@ import { prisma } from '../lib/db.js'
 import { createUserSchema } from '../schemas/user.js'
 import { userService } from '../modules/user/index.js'
 import { fileRepository } from '../modules/file/file.repository.js'
+import { formTemplateController } from '../modules/form-template/index.js'
+import { uploadSingleFile } from '../middleware/upload.js'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { AppError } from '../shared/errors.js'
 
@@ -197,3 +199,9 @@ adminRouter.post(
     res.status(201).json({ data: created })
   })
 )
+
+/** GET /api/v1/admin/form-templates — 後台預設表單樣板列表（本租戶） */
+adminRouter.get('/form-templates', asyncHandler(formTemplateController.listDefault.bind(formTemplateController)))
+
+/** POST /api/v1/admin/form-templates — 後台新增預設樣板（multipart: file, name, description） */
+adminRouter.post('/form-templates', uploadSingleFile, asyncHandler(formTemplateController.createDefault.bind(formTemplateController)))

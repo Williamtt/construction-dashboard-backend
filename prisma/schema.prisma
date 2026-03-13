@@ -22,8 +22,9 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users    User[]
-  projects Project[]
+  users         User[]
+  projects      Project[]
+  formTemplates FormTemplate[]
 }
 
 // ---------- 人員（使用者）----------
@@ -47,6 +48,7 @@ model User {
   tenant            Tenant?            @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   projectMembers    ProjectMember[]
   attachments       Attachment[]
+  formTemplates     FormTemplate[]
   loginLogs         LoginLog[]
   auditLogs         AuditLog[]
   announcementReads AnnouncementRead[]
@@ -137,6 +139,31 @@ model PlatformSetting {
   @@map("platform_settings")
 }
 
+// ---------- 表單樣板（相關表單：後台預設樣板 + 專案自訂樣板）----------
+model FormTemplate {
+  id            String    @id @default(cuid())
+  tenantId      String?   @map("tenant_id")
+  projectId     String?   @map("project_id")   // null = 後台預設樣板
+  name          String    @map("name")         // 顯示名稱
+  description   String?   @map("description")  // 描述
+  storageKey    String    @map("storage_key")
+  fileName      String    @map("file_name")
+  fileSize      Int       @map("file_size")
+  mimeType      String    @map("mime_type")
+  fileHash      String?   @map("file_hash")
+  uploadedById  String    @map("uploaded_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedBy User  @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([projectId])
+  @@map("form_templates")
+}
+
 // ---------- 附件（檔案上傳 metadata，實體存儲存層）----------
 model Attachment {
   id            String    @id @default(cuid())
@@ -187,6 +214,7 @@ model Project {
   projectMembers      ProjectMember[]
   scheduleAdjustments ProjectScheduleAdjustment[]
   attachments         Attachment[]
+  formTemplates       FormTemplate[]
 }
 
 // ---------- 工期調整（專案內展延／停工申請與核定）----------
