@@ -7,6 +7,7 @@ import { uploadSingleFile } from '../middleware/upload.js'
 import { scheduleAdjustmentsRouter } from './schedule-adjustments.js'
 import { albumsRouter } from './albums.js'
 import { photoFavoriteController } from '../modules/photo-favorite/index.js'
+import { cameraController } from '../modules/camera/index.js'
 
 export const projectsRouter = Router()
 
@@ -35,6 +36,27 @@ projectsRouter.use('/:projectId/albums', albumsRouter)
 projectsRouter.get('/:projectId/photo-favorites', asyncHandler(photoFavoriteController.list.bind(photoFavoriteController)))
 projectsRouter.post('/:projectId/photo-favorites', asyncHandler(photoFavoriteController.add.bind(photoFavoriteController)))
 projectsRouter.delete('/:projectId/photo-favorites/:attachmentId', asyncHandler(photoFavoriteController.remove.bind(photoFavoriteController)))
+
+/** 攝影機（CCTV / go2rtc 推流） */
+projectsRouter.get('/:projectId/cameras', asyncHandler(cameraController.list.bind(cameraController)))
+/** 專案層級一鍵安裝包（須在 :cameraId 前註冊，避免被當成 cameraId） */
+projectsRouter.get(
+  '/:projectId/cameras/install-package',
+  asyncHandler(cameraController.downloadProjectInstallPackage.bind(cameraController))
+)
+projectsRouter.post('/:projectId/cameras', asyncHandler(cameraController.create.bind(cameraController)))
+projectsRouter.get('/:projectId/cameras/:cameraId/install', asyncHandler(cameraController.getByIdForInstall.bind(cameraController)))
+projectsRouter.get('/:projectId/cameras/:cameraId/play-url', asyncHandler(cameraController.getPlayUrl.bind(cameraController)))
+projectsRouter.get('/:projectId/cameras/:cameraId/install-config/download', asyncHandler(cameraController.downloadInstallYaml.bind(cameraController)))
+projectsRouter.get('/:projectId/cameras/:cameraId/install-package', asyncHandler(cameraController.downloadInstallPackage.bind(cameraController)))
+projectsRouter.get('/:projectId/cameras/:cameraId/install-config', asyncHandler(cameraController.getInstallConfig.bind(cameraController)))
+projectsRouter.get('/:projectId/cameras/:cameraId', asyncHandler(cameraController.getById.bind(cameraController)))
+projectsRouter.patch(
+  '/:projectId/cameras/:cameraId/connection-status-override',
+  asyncHandler(cameraController.setConnectionStatusOverride.bind(cameraController))
+)
+projectsRouter.patch('/:projectId/cameras/:cameraId', asyncHandler(cameraController.update.bind(cameraController)))
+projectsRouter.delete('/:projectId/cameras/:cameraId', asyncHandler(cameraController.delete.bind(cameraController)))
 
 /** GET /api/v1/projects/:id — 單一專案（含專案資訊欄位） */
 projectsRouter.get('/:id', asyncHandler(projectController.getById.bind(projectController)))

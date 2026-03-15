@@ -235,7 +235,8 @@ platformAdminRouter.get('/projects', async (req: Request, res: Response) => {
 platformAdminRouter.delete(
   '/projects/:id',
   asyncHandler(async (req: Request, res: Response) => {
-    const projectId = req.params.id
+    const projectId = typeof req.params.id === 'string' ? req.params.id : req.params.id?.[0]
+    if (!projectId) throw new AppError(400, 'BAD_REQUEST', '缺少專案 id')
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       select: { id: true },
@@ -313,7 +314,8 @@ platformAdminRouter.delete(
   '/users/:id',
   asyncHandler(async (req: Request, res: Response) => {
     const user = req.user!
-    const targetId = req.params.id
+    const targetId = typeof req.params.id === 'string' ? req.params.id : req.params.id?.[0]
+    if (!targetId) throw new AppError(400, 'BAD_REQUEST', '缺少使用者 id')
     if (targetId === user.id) {
       throw new AppError(400, 'BAD_REQUEST', '無法刪除自己的帳號')
     }

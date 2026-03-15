@@ -236,6 +236,7 @@ model Project {
   attachments         Attachment[]
   formTemplates       FormTemplate[]
   photoAlbums         PhotoAlbum[]
+  cameras             Camera[]
 }
 
 // ---------- 相簿（專案內照片管理：圖庫／相簿）----------
@@ -297,4 +298,27 @@ model ProjectMember {
 
   @@unique([projectId, userId])
   @@map("project_members")
+}
+
+// ---------- 攝影機（專案級，go2rtc 推流；一機一 Token）----------
+model Camera {
+  id               String    @id @default(cuid())
+  projectId        String    @map("project_id")
+  tenantId         String?   @map("tenant_id")
+  name             String    @map("name")
+  streamToken      String    @unique @map("stream_token")   // UUID v4，= mediamtx path 名
+  connectionMode   String    @default("go2rtc") @map("connection_mode") // go2rtc | fixed_ip（未來）
+  sourceUrlEnc     String?   @map("source_url_enc")        // 設備 RTSP URL 加密儲存（選填，供 go2rtc 設定範例）
+  status           String    @default("active") @map("status") // active | disabled
+  lastStreamAt     DateTime? @map("last_stream_at")       // 最後一次偵測到推流成功的時間；null = 尚未設定
+  connectionStatusOverride String? @map("connection_status_override") // 'offline' = 手動標示為離線（不影響實際串流）
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([tenantId])
+  @@index([streamToken])
+  @@map("cameras")
 }

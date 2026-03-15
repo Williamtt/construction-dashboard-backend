@@ -1,0 +1,22 @@
+---
+description: 完成變更後須檢查 build 與 terminal，確保無錯誤
+alwaysApply: true
+---
+
+# 完成變更後檢查
+
+每次完成程式變更（後端或前端）後，**必須**執行下列檢查，確認 terminal / build 沒有問題：
+
+1. **後端**（construction-dashboard-backend）
+   - 執行 `npm run build`，確認 TypeScript 編譯通過（無 TS 錯誤）。
+   - 若有執行 `npm run dev`，確認 terminal 無執行時錯誤。
+
+2. **前端**（construction-dashboard-frontend）
+   - 執行 `npm run build`，確認建置成功。
+   - 若有執行 dev server，確認 terminal 無錯誤。
+
+3. **若發現錯誤**
+   - 先修正錯誤再結束回覆，勿留下會導致 build 失敗的變更。
+   - 可依情境執行 `ReadLints` 或終端機 build 指令檢查。
+
+將此檢查列為完成任務前的最後一步，避免使用者還需再提醒「terminal 有問題」。
