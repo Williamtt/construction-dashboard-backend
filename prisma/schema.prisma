@@ -237,6 +237,51 @@ model Project {
   formTemplates       FormTemplate[]
   photoAlbums         PhotoAlbum[]
   cameras             Camera[]
+  alertRecords        AlertRecord[]
+}
+
+// ---------- 氣象／災防警報紀錄（混合：即時顯示＋寫入保留查詢）----------
+// 即時用：同類型同專案一筆，lastSeenAt 逾 30 分鐘不顯示
+model AlertRecord {
+  id          String    @id @default(cuid())
+  projectId   String?   @map("project_id")   // 可選，未填則為全站
+  alertType   String    @map("alert_type")  // 地震|豪雨|高溫|颱風|空污|其他
+  level       String    @map("level")       // alarm|attention|normal
+  title       String    @map("title")
+  value       String    @map("value")      // 顯示用摘要
+  description String?   @map("description")
+  startTime   DateTime? @map("start_time")
+  endTime     DateTime? @map("end_time")
+  source      String    @default("cwa") @map("source")  // cwa|mock
+  lastSeenAt  DateTime  @map("last_seen_at")  // 最後一次見到此警報時間，逾 30 分鐘則不顯示
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@unique([alertType, projectId])
+  @@index([projectId])
+  @@index([lastSeenAt])
+  @@map("alert_records")
+}
+
+// 歷史用：每次寫入即時時一併 insert 一筆，供歷史列表查詢
+model AlertHistoryRecord {
+  id          String    @id @default(cuid())
+  projectId   String?   @map("project_id")
+  alertType   String    @map("alert_type")
+  level       String    @map("level")
+  title       String    @map("title")
+  value       String    @map("value")
+  description String?   @map("description")
+  startTime   DateTime? @map("start_time")
+  endTime     DateTime? @map("end_time")
+  source      String    @default("cwa") @map("source")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@index([createdAt])
+  @@index([alertType])
+  @@map("alert_history_records")
 }
 
 // ---------- 相簿（專案內照片管理：圖庫／相簿）----------

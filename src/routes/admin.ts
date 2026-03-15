@@ -162,8 +162,9 @@ adminRouter.get(
 )
 
 /** GET /api/v1/admin/projects — 本租戶專案列表（tenant_admin 僅本租戶；platform_admin 可帶 query tenantId） */
-adminRouter.get('/projects', async (req: Request, res: Response) => {
-  try {
+adminRouter.get(
+  '/projects',
+  asyncHandler(async (req: Request, res: Response) => {
     const user = req.user!
     const page = Math.max(1, Number(req.query.page) || 1)
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20))
@@ -202,13 +203,8 @@ adminRouter.get('/projects', async (req: Request, res: Response) => {
     ])
 
     res.status(200).json({ data: list, meta: { page, limit, total } })
-  } catch (e) {
-    console.error('GET /admin/projects', e)
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: '無法取得專案列表' },
-    })
-  }
-})
+  })
+)
 
 /** DELETE /api/v1/admin/projects/:id — 刪除專案（限本租戶；cascade 關聯資料） */
 adminRouter.delete(
@@ -233,8 +229,9 @@ adminRouter.delete(
 )
 
 /** GET /api/v1/admin/users — 本租戶使用者列表（可篩選 memberType：internal | external） */
-adminRouter.get('/users', async (req: Request, res: Response) => {
-  try {
+adminRouter.get(
+  '/users',
+  asyncHandler(async (req: Request, res: Response) => {
     const user = req.user!
     const tenantId = (req.query.tenantId as string) || user.tenantId
     const memberType = req.query.memberType as string | undefined
@@ -272,13 +269,8 @@ adminRouter.get('/users', async (req: Request, res: Response) => {
     ])
 
     res.status(200).json({ data: list, meta: { page, limit, total } })
-  } catch (e) {
-    console.error('GET /admin/users', e)
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: '無法取得使用者列表' },
-    })
-  }
-})
+  })
+)
 
 /** POST /api/v1/admin/users — 租戶新增成員（本租戶使用者；tenant_admin 僅能建 project_user / tenant_admin） */
 adminRouter.post(

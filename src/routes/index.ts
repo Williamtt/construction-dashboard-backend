@@ -9,6 +9,7 @@ import { filesRouter } from './files.js'
 import { formTemplatesRouter } from './form-templates.js'
 import { adminRouter } from './admin.js'
 import { platformAdminRouter } from './platform-admin.js'
+import { alertsRouter } from './alerts.js'
 
 export const apiRouter = Router()
 
@@ -25,3 +26,4 @@ apiRouter.use('/files', authMiddleware, filesRouter)
 apiRouter.use('/form-templates', authMiddleware, formTemplatesRouter)
 apiRouter.use('/admin', authMiddleware, requireAdmin, adminRouter)
 apiRouter.use('/platform-admin', authMiddleware, requirePlatformAdmin, platformAdminRouter)
+apiRouter.use('/alerts', authMiddleware, alertsRouter)

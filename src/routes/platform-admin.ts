@@ -29,8 +29,9 @@ function parseExpiresAt(value: string | null | undefined): Date | null {
 }
 
 /** GET /api/v1/platform-admin/tenants — 租戶列表 */
-platformAdminRouter.get('/tenants', async (req: Request, res: Response) => {
-  try {
+platformAdminRouter.get(
+  '/tenants',
+  asyncHandler(async (req: Request, res: Response) => {
     const page = Math.max(1, Number(req.query.page) || 1)
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20))
     const skip = (page - 1) * limit
@@ -50,13 +51,8 @@ platformAdminRouter.get('/tenants', async (req: Request, res: Response) => {
     ])
 
     res.status(200).json({ data: list, meta: { page, limit, total } })
-  } catch (e) {
-    console.error('GET /platform-admin/tenants', e)
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: '無法取得租戶列表' },
-    })
-  }
-})
+  })
+)
 
 /** GET /api/v1/platform-admin/tenants/:id — 單一租戶 */
 platformAdminRouter.get(
@@ -180,8 +176,9 @@ platformAdminRouter.delete(
 )
 
 /** GET /api/v1/platform-admin/projects — 全部專案（可依 tenantId 篩選，含所屬租戶名稱） */
-platformAdminRouter.get('/projects', async (req: Request, res: Response) => {
-  try {
+platformAdminRouter.get(
+  '/projects',
+  asyncHandler(async (req: Request, res: Response) => {
     const tenantId = req.query.tenantId as string | undefined
     const page = Math.max(1, Number(req.query.page) || 1)
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20))
@@ -223,13 +220,8 @@ platformAdminRouter.get('/projects', async (req: Request, res: Response) => {
     }))
 
     res.status(200).json({ data, meta: { page, limit, total } })
-  } catch (e) {
-    console.error('GET /platform-admin/projects', e)
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: '無法取得專案列表' },
-    })
-  }
-})
+  })
+)
 
 /** DELETE /api/v1/platform-admin/projects/:id — 刪除專案（僅 platform_admin） */
 platformAdminRouter.delete(
@@ -250,8 +242,9 @@ platformAdminRouter.delete(
 )
 
 /** GET /api/v1/platform-admin/users — 全部使用者（可依 tenantId / systemRole / memberType 篩選） */
-platformAdminRouter.get('/users', async (req: Request, res: Response) => {
-  try {
+platformAdminRouter.get(
+  '/users',
+  asyncHandler(async (req: Request, res: Response) => {
     const tenantId = req.query.tenantId as string | undefined
     const systemRole = req.query.systemRole as string | undefined
     const memberType = req.query.memberType as string | undefined
@@ -301,13 +294,8 @@ platformAdminRouter.get('/users', async (req: Request, res: Response) => {
     })
 
     res.status(200).json({ data: list, meta: { page, limit, total } })
-  } catch (e) {
-    console.error('GET /platform-admin/users', e)
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: '無法取得使用者列表' },
-    })
-  }
-})
+  })
+)
 
 /** DELETE /api/v1/platform-admin/users/:id — 刪除使用者（僅 platform_admin；不可刪除自己） */
 platformAdminRouter.delete(
