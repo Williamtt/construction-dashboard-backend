@@ -36,16 +36,17 @@ enum SystemRole {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
-  passwordHash String     @map("password_hash")
-  name         String?
-  systemRole   SystemRole @default(project_user) @map("system_role")
-  memberType   String     @default("internal") @map("member_type") // internal | external
-  status       String     @default("active") @map("status") // active | suspended（停用後無法登入）
-  tenantId     String?    @map("tenant_id")
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id                String     @id @default(cuid())
+  email             String     @unique
+  passwordHash      String     @map("password_hash")
+  name              String?
+  avatarStorageKey  String?    @map("avatar_storage_key") // 個人頭貼（R2/儲存鍵）
+  systemRole        SystemRole @default(project_user) @map("system_role")
+  memberType        String     @default("internal") @map("member_type") // internal | external
+  status            String     @default("active") @map("status") // active | suspended（停用後無法登入）
+  tenantId          String?    @map("tenant_id")
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   tenant            Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   projectMembers    ProjectMember[]

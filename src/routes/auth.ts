@@ -10,6 +10,7 @@ import { AppError } from '../shared/errors.js'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { loginLogRepository } from '../modules/login-log/login-log.repository.js'
 import { isMaintenanceMode } from '../middleware/maintenance.js'
+import { uploadSingleFile } from '../middleware/upload.js'
 
 function getClientIp(req: Request): string | null {
   const forwarded = req.headers['x-forwarded-for']
@@ -63,6 +64,7 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
         id: true,
         email: true,
         name: true,
+        avatarStorageKey: true,
         systemRole: true,
         tenantId: true,
         passwordHash: true,
@@ -172,6 +174,7 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
           id: user.id,
           email: user.email,
           name: user.name,
+          hasAvatar: !!user.avatarStorageKey,
           systemRole: user.systemRole,
           tenantId: user.tenantId,
         },
@@ -190,16 +193,40 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
   }
 })
 
-/** GET /api/v1/auth/me — 回傳當前登入者（需 Authorization） */
-authRouter.get('/me', authMiddleware, (req: Request, res: Response) => {
-  if (!req.user) {
-    res.status(401).json({
-      error: { code: 'UNAUTHORIZED', message: '未登入' },
+/** GET /api/v1/auth/me — 回傳當前登入者（需 Authorization），含 hasAvatar */
+authRouter.get(
+  '/me',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) {
+      throw new AppError(401, 'UNAUTHORIZED', '未登入')
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        avatarStorageKey: true,
+        systemRole: true,
+        tenantId: true,
+      },
     })
-    return
-  }
-  res.status(200).json({ data: req.user })
-})
+    if (!user) {
+      throw new AppError(401, 'UNAUTHORIZED', '未登入')
+    }
+    res.status(200).json({
+      data: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        hasAvatar: !!user.avatarStorageKey,
+        systemRole: user.systemRole,
+        tenantId: user.tenantId,
+      },
+    })
+  })
+)
 
 /** GET /api/v1/auth/me/tenant-branding — 當前使用者所屬租戶的品牌（名稱、是否有 Logo），供 header 顯示，僅需登入 */
 authRouter.get(
@@ -228,6 +255,72 @@ authRouter.get(
         hasLogo: !!tenant.logoStorageKey,
       },
     })
+  })
+)
+
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024 // 2MB
+const AVATAR_ALLOWED_MIMES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp']
+
+/** POST /api/v1/auth/me/avatar — 上傳個人頭貼（multipart: file） */
+authRouter.post(
+  '/me/avatar',
+  authMiddleware,
+  uploadSingleFile,
+  asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) {
+      throw new AppError(401, 'UNAUTHORIZED', '未登入')
+    }
+    const file = (req as Request & { file?: Express.Multer.File }).file
+    if (!file?.buffer) {
+      throw new AppError(400, 'BAD_REQUEST', '請選擇要上傳的圖片')
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      throw new AppError(400, 'FILE_TOO_LARGE', `頭貼不得超過 ${AVATAR_MAX_BYTES / 1024 / 1024} MB`)
+    }
+    const mime = (file.mimetype || '').toLowerCase()
+    if (!AVATAR_ALLOWED_MIMES.includes(mime)) {
+      throw new AppError(400, 'VALIDATION_ERROR', '僅支援 PNG、JPG、WebP 圖片')
+    }
+    const existing = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { avatarStorageKey: true },
+    })
+    if (!existing) {
+      throw new AppError(401, 'UNAUTHORIZED', '未登入')
+    }
+    const ext = mime.split('/')[1] ?? 'png'
+    const storageKey = `users/${req.user.id}/avatar_${Date.now()}.${ext}`
+    await storage.upload(file.buffer, storageKey, mime)
+    if (existing.avatarStorageKey) {
+      await storage.delete(existing.avatarStorageKey).catch(() => {})
+    }
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { avatarStorageKey: storageKey },
+    })
+    res.status(200).json({ data: { hasAvatar: true } })
+  })
+)
+
+/** GET /api/v1/auth/me/avatar — 當前使用者頭貼圖片（stream），僅需登入 */
+authRouter.get(
+  '/me/avatar',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) {
+      throw new AppError(401, 'UNAUTHORIZED', '未登入')
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { avatarStorageKey: true },
+    })
+    if (!user?.avatarStorageKey) {
+      throw new AppError(404, 'NOT_FOUND', '尚未設定頭貼')
+    }
+    const { stream, contentType } = await storage.getStream(user.avatarStorageKey)
+    res.setHeader('Cache-Control', 'private, max-age=300')
+    if (contentType) res.setHeader('Content-Type', contentType)
+    stream.pipe(res)
   })
 )
 
