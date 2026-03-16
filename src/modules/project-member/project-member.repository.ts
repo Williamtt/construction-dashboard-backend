@@ -55,7 +55,7 @@ export const projectMemberRepository = {
       where: { projectId },
       select: { userId: true },
     })
-    const excludeIds = existing.map((r) => r.userId)
+    const excludeIds = existing.map((r: { userId: string }) => r.userId)
     const users = await prisma.user.findMany({
       where: {
         tenantId,

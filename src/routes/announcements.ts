@@ -30,13 +30,14 @@ announcementsRouter.get('/active', async (req: Request, res: Response) => {
           },
         })
       : await prisma.platformAnnouncement.findMany(baseWhere)
+    type Row = (typeof rows)[number]
     const list = rows
-      .filter((r) => {
+      .filter((r: Row) => {
         const ids = r.targetTenantIds as string[] | null
         if (ids == null || ids.length === 0) return true
         return tenantId != null && ids.includes(tenantId)
       })
-      .map((r) => {
+      .map((r: Row) => {
         const row = r as typeof r & { reads?: { readAt: Date }[] }
         const readAt = userId && row.reads && row.reads.length > 0 ? row.reads[0].readAt : null
         return {

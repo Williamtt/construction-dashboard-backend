@@ -89,7 +89,8 @@ export const fileRepository = {
       },
     })
     const orderMap = new Map(ids.map((id, i) => [id, i]))
-    items.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0))
+    type Item = (typeof items)[number]
+    items.sort((a: Item, b: Item) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0))
     return {
       items: items as (AttachmentRecord & { uploadedBy: { name: string | null } })[],
       total: items.length,

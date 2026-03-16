@@ -207,7 +207,8 @@ platformAdminRouter.get(
       prisma.project.count({ where }),
     ])
 
-    const data = list.map((p) => ({
+    type ProjectRow = (typeof list)[number]
+    const data = list.map((p: ProjectRow) => ({
       id: p.id,
       name: p.name,
       description: p.description,
@@ -278,7 +279,8 @@ platformAdminRouter.get(
       prisma.user.count({ where }),
     ])
 
-    const list = rows.map((u) => {
+    type UserRow = (typeof rows)[number]
+    const list = rows.map((u: UserRow) => {
       const row = u as typeof u & { tenant?: { name: string } | null }
       return {
         id: row.id,
@@ -351,8 +353,9 @@ platformAdminRouter.get(
       orderBy: { name: 'asc' },
       include: { _count: { select: { users: true, projects: true } } },
     })
+    type TenantRow = (typeof tenants)[number]
     const usageList = await Promise.all(
-      tenants.map(async (t) => {
+      tenants.map(async (t: TenantRow) => {
         const storageBytes = await fileRepository.getTenantStorageUsageBytesSimple(t.id)
         return {
           id: t.id,
