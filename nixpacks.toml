@@ -1,0 +1,14 @@
+# Railway 使用 Nixpacks 建置時會讀取此檔
+# 確保 Prisma Client 在 build 階段產生，再執行 npm run build
+
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["npx prisma generate", "npm run build"]
+
+[start]
+cmd = "npm run start"
