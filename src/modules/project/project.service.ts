@@ -58,23 +58,39 @@ export const projectService = {
     args: { page: number; limit: number; skip: number },
     user: AuthUser
   ): Promise<{ list: ProjectListItem[]; total: number }> {
-    const tenantIdFilter =
-      user.systemRole === 'platform_admin'
-        ? undefined
-        : user.tenantId ?? undefined
-    if (user.systemRole !== 'platform_admin' && user.tenantId == null) {
-      return { list: [], total: 0 }
+    if (user.systemRole === 'platform_admin') {
+      const [rows, total] = await Promise.all([
+        projectRepository.findMany({
+          skip: args.skip,
+          take: args.limit,
+          tenantId: undefined,
+        }),
+        projectRepository.count(undefined),
+      ])
+      return { list: rows.map(applyPlannedEndFromDuration), total }
     }
+    if (user.systemRole === 'tenant_admin') {
+      if (user.tenantId == null) return { list: [], total: 0 }
+      const [rows, total] = await Promise.all([
+        projectRepository.findMany({
+          skip: args.skip,
+          take: args.limit,
+          tenantId: user.tenantId,
+        }),
+        projectRepository.count(user.tenantId),
+      ])
+      return { list: rows.map(applyPlannedEndFromDuration), total }
+    }
+    // project_user：僅顯示身為專案成員（ProjectMember）的專案
     const [rows, total] = await Promise.all([
-      projectRepository.findMany({
+      projectRepository.findManyByMemberUserId({
+        userId: user.id,
         skip: args.skip,
         take: args.limit,
-        tenantId: tenantIdFilter,
       }),
-      projectRepository.count(tenantIdFilter),
+      projectRepository.countByMemberUserId(user.id),
     ])
-    const list = rows.map(applyPlannedEndFromDuration)
-    return { list, total }
+    return { list: rows.map(applyPlannedEndFromDuration), total }
   },
 
   async getById(id: string, user: AuthUser): Promise<ProjectListItem> {
@@ -82,7 +98,23 @@ export const projectService = {
     if (!project) {
       throw new AppError(404, 'NOT_FOUND', '找不到該專案')
     }
-    if (user.systemRole !== 'platform_admin' && project.tenantId !== user.tenantId) {
+    if (user.systemRole === 'platform_admin') {
+      const sumApprovedDays = await getSumApprovedDays(id)
+      return applyComputedDates(project, sumApprovedDays)
+    }
+    if (user.systemRole === 'tenant_admin') {
+      if (project.tenantId !== user.tenantId) {
+        throw new AppError(403, 'FORBIDDEN', '無權限存取此專案')
+      }
+      const sumApprovedDays = await getSumApprovedDays(id)
+      return applyComputedDates(project, sumApprovedDays)
+    }
+    // project_user：須為專案成員且狀態為 active
+    const member = await prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId: id, userId: user.id } },
+      select: { status: true },
+    })
+    if (!member || member.status !== 'active') {
       throw new AppError(403, 'FORBIDDEN', '無權限存取此專案')
     }
     const sumApprovedDays = await getSumApprovedDays(id)

@@ -336,6 +336,7 @@ model ProjectMember {
   projectId String     @map("project_id")
   userId    String     @map("user_id")
   role      ProjectRole @default(member)
+  status    String     @default("active") @map("status") // active | suspended（停用後無法存取專案）
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 

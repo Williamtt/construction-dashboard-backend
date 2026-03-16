@@ -8,6 +8,7 @@ import { scheduleAdjustmentsRouter } from './schedule-adjustments.js'
 import { albumsRouter } from './albums.js'
 import { photoFavoriteController } from '../modules/photo-favorite/index.js'
 import { cameraController } from '../modules/camera/index.js'
+import { projectMemberController } from '../modules/project-member/index.js'
 
 export const projectsRouter = Router()
 
@@ -22,6 +23,13 @@ projectsRouter.use('/:projectId/schedule-adjustments', scheduleAdjustmentsRouter
 
 /** GET /api/v1/projects/:projectId/files — 專案附件列表（須在 /:id 之前） */
 projectsRouter.get('/:projectId/files', asyncHandler(fileController.listByProject.bind(fileController)))
+
+/** 專案成員（從租戶成員引入；列表、可加入名單、新增、移除；available 須在 list 前註冊） */
+projectsRouter.get('/:projectId/members/available', asyncHandler(projectMemberController.listAvailable.bind(projectMemberController)))
+projectsRouter.get('/:projectId/members', asyncHandler(projectMemberController.list.bind(projectMemberController)))
+projectsRouter.post('/:projectId/members', asyncHandler(projectMemberController.add.bind(projectMemberController)))
+projectsRouter.patch('/:projectId/members/:userId', asyncHandler(projectMemberController.setStatus.bind(projectMemberController)))
+projectsRouter.delete('/:projectId/members/:userId', asyncHandler(projectMemberController.remove.bind(projectMemberController)))
 
 /** GET /api/v1/projects/:projectId/form-templates — 專案可見表單樣板（預設+專案） */
 projectsRouter.get('/:projectId/form-templates', asyncHandler(formTemplateController.listForProject.bind(formTemplateController)))

@@ -51,9 +51,10 @@ async function ensureUserCanAccessProject(
   if (isPlatformAdmin) return
   const member = await prisma.projectMember.findUnique({
     where: { projectId_userId: { projectId, userId } },
+    select: { status: true },
   })
-  if (!member) {
-    throw new AppError(403, 'FORBIDDEN', '非專案成員，無法存取此專案攝影機')
+  if (!member || member.status !== 'active') {
+    throw new AppError(403, 'FORBIDDEN', '非專案成員或已停用，無法存取此專案攝影機')
   }
 }
 

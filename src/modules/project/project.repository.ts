@@ -58,9 +58,34 @@ export const projectRepository = {
     }) as Promise<ProjectListItem[]>
   },
 
+  /** 僅列出使用者為專案成員（ProjectMember）且狀態為 active 的專案 */
+  async findManyByMemberUserId(args: { userId: string; skip: number; take: number }) {
+    return prisma.project.findMany({
+      where: {
+        projectMembers: {
+          some: { userId: args.userId, status: 'active' },
+        },
+      },
+      skip: args.skip,
+      take: args.take,
+      orderBy: { updatedAt: 'desc' },
+      select: projectSelect,
+    }) as Promise<ProjectListItem[]>
+  },
+
   async count(tenantId?: string | null) {
     const where = tenantId !== undefined ? { tenantId } : undefined
     return prisma.project.count({ where })
+  },
+
+  async countByMemberUserId(userId: string) {
+    return prisma.project.count({
+      where: {
+        projectMembers: {
+          some: { userId, status: 'active' },
+        },
+      },
+    })
   },
 
   async findById(id: string) {
