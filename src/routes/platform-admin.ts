@@ -14,7 +14,7 @@ import { platformAdminAnnouncementsRouter } from './platform-admin-announcements
 import { recordAudit } from '../modules/audit-log/audit-log.service.js'
 import { fileRepository } from '../modules/file/file.repository.js'
 import { updatePlatformSettingsSchema } from '../schemas/platform-setting.js'
-import { storage } from '../lib/storage/index.js'
+import { storage } from '../lib/storage.js'
 import { clearMaintenanceCache } from '../middleware/maintenance.js'
 
 export const platformAdminRouter = Router()

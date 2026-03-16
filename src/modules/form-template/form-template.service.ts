@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { AppError } from '../../shared/errors.js'
 import { formTemplateRepository } from './form-template.repository.js'
-import { storage } from '../../lib/storage/index.js'
+import { storage } from '../../lib/storage.js'
 import { projectRepository } from '../project/project.repository.js'
 import { UPLOAD_MAX_FILE_SIZE_DEFAULT_BYTES } from '../../constants/file.js'
 import { prisma } from '../../lib/db.js'
