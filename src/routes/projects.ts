@@ -5,6 +5,9 @@ import { fileController } from '../modules/file/index.js'
 import { formTemplateController } from '../modules/form-template/index.js'
 import { uploadSingleFile } from '../middleware/upload.js'
 import { scheduleAdjustmentsRouter } from './schedule-adjustments.js'
+import { wbsRouter } from './wbs.js'
+import { issueRisksRouter } from './issue-risks.js'
+import { resourcesRouter } from './resources.js'
 import { albumsRouter } from './albums.js'
 import { photoFavoriteController } from '../modules/photo-favorite/index.js'
 import { cameraController } from '../modules/camera/index.js'
@@ -20,6 +23,15 @@ projectsRouter.post('/', asyncHandler(projectController.create.bind(projectContr
 
 /** 工期調整（須在 /:id 之前掛載，否則會被 :id 吃掉） */
 projectsRouter.use('/:projectId/schedule-adjustments', scheduleAdjustmentsRouter)
+
+/** WBS 工作分解結構（列表、新增、編輯、刪除、拖移） */
+projectsRouter.use('/:projectId/wbs', wbsRouter)
+
+/** 議題風險表（列表、新增、編輯、刪除） */
+projectsRouter.use('/:projectId/issue-risks', issueRisksRouter)
+
+/** 資源庫（人力、機具、材料） */
+projectsRouter.use('/:projectId/resources', resourcesRouter)
 
 /** GET /api/v1/projects/:projectId/files — 專案附件列表（須在 /:id 之前） */
 projectsRouter.get('/:projectId/files', asyncHandler(fileController.listByProject.bind(fileController)))

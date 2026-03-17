@@ -56,6 +56,7 @@ model User {
   auditLogs         AuditLog[]
   announcementReads AnnouncementRead[]
   photoFavorites    UserPhotoFavorite[]
+  assignedIssueRisks ProjectIssueRisk[]
 }
 
 // ---------- 登入紀錄（平台監控用）----------
@@ -239,6 +240,83 @@ model Project {
   photoAlbums         PhotoAlbum[]
   cameras             Camera[]
   alertRecords        AlertRecord[]
+  wbsNodes            WbsNode[]
+  issueRisks          ProjectIssueRisk[]
+  resources           ProjectResource[]
+}
+
+// ---------- WBS 工作分解結構（專案內樹狀，可拖移排序）----------
+model WbsNode {
+  id        String    @id @default(cuid())
+  projectId String    @map("project_id")
+  parentId  String?   @map("parent_id")
+  code      String    @map("code")       // 1, 1.1, 1.1.1（由系統依結構計算）
+  name      String    @map("name")
+  sortOrder Int       @default(0) @map("sort_order")  // 同層排序
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent   WbsNode?  @relation("WbsTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children WbsNode[] @relation("WbsTree")
+  issueRiskLinks ProjectIssueRiskWbsNode[]
+
+  @@index([projectId])
+  @@index([parentId])
+  @@map("wbs_nodes")
+}
+
+// ---------- 議題風險表（專案內：議題說明、負責人、緊急程度、影像任務 WBS、狀態）----------
+model ProjectIssueRisk {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  description String   @map("description")   // 議題說明/現況說明
+  assigneeId  String?  @map("assignee_id")   // 負責人（User）
+  urgency     String   @default("medium") @map("urgency")  // low | medium | high | critical
+  status      String   @default("open") @map("status")     // open | in_progress | resolved | closed
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee  User?     @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+  wbsLinks  ProjectIssueRiskWbsNode[]
+
+  @@index([projectId])
+  @@index([assigneeId])
+  @@map("project_issue_risks")
+}
+
+model ProjectIssueRiskWbsNode {
+  issueRiskId String @map("issue_risk_id")
+  wbsNodeId   String @map("wbs_node_id")
+
+  issueRisk ProjectIssueRisk @relation(fields: [issueRiskId], references: [id], onDelete: Cascade)
+  wbsNode   WbsNode           @relation(fields: [wbsNodeId], references: [id], onDelete: Cascade)
+
+  @@id([issueRiskId, wbsNodeId])
+  @@index([wbsNodeId])
+  @@map("project_issue_risk_wbs_nodes")
+}
+
+// ---------- 專案資源庫（人力、機具、材料）----------
+model ProjectResource {
+  id             String    @id @default(cuid())
+  projectId      String    @map("project_id")
+  type           String    @map("type")            // labor | equipment | material
+  name           String    @map("name")
+  unit           String    @map("unit")            // 單位（人天、台、噸等）
+  unitCost       Float     @default(0) @map("unit_cost")   // 單位成本
+  capacityType   String?   @map("capacity_type")   // 容量類型（選填）
+  dailyCapacity  Float?    @map("daily_capacity")  // 每日容量（選填）
+  description    String?   @map("description")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([projectId, type])
+  @@map("project_resources")
 }
 
 // ---------- 氣象／災防警報紀錄（混合：即時顯示＋寫入保留查詢）----------
