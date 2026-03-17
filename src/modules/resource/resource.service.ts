@@ -55,6 +55,7 @@ export const resourceService = {
       unitCost: body.unitCost,
       capacityType: body.capacityType?.trim() ?? null,
       dailyCapacity: body.dailyCapacity ?? null,
+      vendor: body.vendor?.trim() ?? null,
       description: body.description?.trim() ?? null,
     })
   },
@@ -80,6 +81,7 @@ export const resourceService = {
       ...(body.dailyCapacity !== undefined && {
         dailyCapacity: body.dailyCapacity ?? null,
       }),
+      ...(body.vendor !== undefined && { vendor: body.vendor?.trim() ?? null }),
       ...(body.description !== undefined && {
         description: body.description?.trim() ?? null,
       }),

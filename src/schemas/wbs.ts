@@ -1,14 +1,27 @@
 import { z } from 'zod'
 
+const resourceAssignmentSchema = z.object({
+  resourceId: z.string().min(1),
+  quantity: z.number().min(0).optional(),
+})
+
 export const createWbsNodeSchema = z.object({
   parentId: z.string().optional().nullable(),
   name: z.string().min(1, '項目名稱為必填').max(500),
+  startDate: z.string().optional().nullable(), // ISO date YYYY-MM-DD
+  durationDays: z.number().int().min(0).optional().nullable(),
+  resourceIds: z.array(z.string().min(1)).optional(), // 相容：未傳 quantity 時視為 1
+  resourceAssignments: z.array(resourceAssignmentSchema).optional(), // 進階：含用量
 })
 
 export type CreateWbsNodeBody = z.infer<typeof createWbsNodeSchema>
 
 export const updateWbsNodeSchema = z.object({
   name: z.string().min(1, '項目名稱為必填').max(500).optional(),
+  startDate: z.string().optional().nullable(), // ISO date YYYY-MM-DD
+  durationDays: z.number().int().min(0).optional().nullable(),
+  resourceIds: z.array(z.string().min(1)).optional(),
+  resourceAssignments: z.array(resourceAssignmentSchema).optional(),
 })
 
 export type UpdateWbsNodeBody = z.infer<typeof updateWbsNodeSchema>

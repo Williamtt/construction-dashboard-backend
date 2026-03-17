@@ -9,6 +9,7 @@ export const createProjectResourceSchema = z.object({
   unitCost: z.number().min(0, '單位成本不可為負').finite(),
   capacityType: z.string().max(100).optional().nullable(),
   dailyCapacity: z.number().min(0).finite().optional().nullable(),
+  vendor: z.string().max(200).optional().nullable(),
   description: z.string().max(2000).optional().nullable(),
 })
 
@@ -20,6 +21,7 @@ export const updateProjectResourceSchema = z.object({
   unitCost: z.number().min(0).finite().optional(),
   capacityType: z.string().max(100).optional().nullable(),
   dailyCapacity: z.number().min(0).finite().optional().nullable(),
+  vendor: z.string().max(200).optional().nullable(),
   description: z.string().max(2000).optional().nullable(),
 })
 

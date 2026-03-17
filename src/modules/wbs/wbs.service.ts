@@ -12,6 +12,11 @@ export type WbsNodeTree = {
   id: string
   code: string
   name: string
+  startDate: string | null
+  durationDays: number | null
+  endDate: string | null // 依 startDate + durationDays 推算
+  variableCost: number | null // 變動成本（資源×用量加總）
+  resources: { id: string; name: string; type: string; unit: string; unitCost: number; quantity: number }[]
   children?: WbsNodeTree[]
 }
 
@@ -26,7 +31,46 @@ async function ensureProjectAccess(projectId: string, user: AuthUser): Promise<v
   }
 }
 
-function buildTree(flat: WbsNodeRecord[], parentId: string | null): WbsNodeTree[] {
+async function ensureResourceIdsInProject(projectId: string, resourceIds: string[]): Promise<void> {
+  if (resourceIds.length === 0) return
+  const found = await prisma.projectResource.findMany({
+    where: { projectId, id: { in: resourceIds } },
+    select: { id: true },
+  })
+  if (found.length !== resourceIds.length) {
+    throw new AppError(400, 'BAD_REQUEST', '部分資源不屬於此專案或不存在')
+  }
+}
+
+/** 從 body 取得資源指派清單（resourceAssignments 優先，否則 resourceIds 視為 quantity 1） */
+function resolveResourceAssignments(body: {
+  resourceIds?: string[]
+  resourceAssignments?: { resourceId: string; quantity?: number }[]
+}): { projectResourceId: string; quantity?: number }[] {
+  if (body.resourceAssignments?.length) {
+    return body.resourceAssignments.map((a) => ({
+      projectResourceId: a.resourceId,
+      quantity: a.quantity,
+    }))
+  }
+  if (body.resourceIds?.length) {
+    return body.resourceIds.map((projectResourceId) => ({ projectResourceId, quantity: 1 }))
+  }
+  return []
+}
+
+type FlatWithResources = WbsNodeRecord & {
+  resources: { id: string; name: string; type: string; unit: string; unitCost: number; quantity: number }[]
+}
+
+function toEndDate(startDate: Date | null, durationDays: number | null): string | null {
+  if (!startDate || durationDays == null || durationDays < 1) return null
+  const end = new Date(startDate)
+  end.setDate(end.getDate() + durationDays)
+  return end.toISOString().slice(0, 10)
+}
+
+function buildTree(flat: FlatWithResources[], parentId: string | null): WbsNodeTree[] {
   return flat
     .filter((n) => n.parentId === parentId)
     .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -34,6 +78,11 @@ function buildTree(flat: WbsNodeRecord[], parentId: string | null): WbsNodeTree[
       id: n.id,
       code: n.code,
       name: n.name,
+      startDate: n.startDate ? n.startDate.toISOString().slice(0, 10) : null,
+      durationDays: n.durationDays,
+      endDate: toEndDate(n.startDate, n.durationDays),
+      variableCost: n.variableCost ?? null,
+      resources: n.resources ?? [],
       children: buildTree(flat, n.id).length > 0 ? buildTree(flat, n.id) : undefined,
     }))
 }
@@ -62,7 +111,7 @@ function recalculateCodes(nodes: WbsNodeRecord[], parentCode: string | null = nu
 export const wbsService = {
   async list(projectId: string, user: AuthUser): Promise<WbsNodeTree[]> {
     await ensureProjectAccess(projectId, user)
-    const flat = await wbsRepository.findManyByProjectId(projectId)
+    const flat = await wbsRepository.findManyByProjectIdWithResources(projectId)
     return buildTree(flat, null)
   },
 
@@ -81,14 +130,26 @@ export const wbsService = {
     const parent = parentId ? flat.find((n) => n.id === parentId) : null
     const parentCode = parent?.code ?? null
     const code = parentCode ? `${parentCode}.${sortOrder + 1}` : String(sortOrder + 1)
+    const startDate =
+      body.startDate != null && body.startDate !== ''
+        ? new Date(body.startDate as string)
+        : undefined
     const node = await wbsRepository.create({
       projectId,
       parentId,
       code,
       name: body.name.trim(),
       sortOrder,
+      startDate: startDate ?? null,
+      durationDays: body.durationDays ?? null,
     })
-    return node
+    const assignments = resolveResourceAssignments(body)
+    if (assignments.length > 0) {
+      await ensureResourceIdsInProject(projectId, assignments.map((a) => a.projectResourceId))
+      await wbsRepository.setNodeResourceAssignments(node.id, assignments)
+      await wbsRepository.recomputeAndUpdateVariableCost(node.id)
+    }
+    return (await wbsRepository.findById(node.id)) ?? node
   },
 
   async update(projectId: string, id: string, body: UpdateWbsNodeBody, user: AuthUser): Promise<WbsNodeRecord> {
@@ -97,10 +158,22 @@ export const wbsService = {
     if (!existing || existing.projectId !== projectId) {
       throw new AppError(404, 'NOT_FOUND', '找不到該 WBS 節點')
     }
-    if (body.name !== undefined) {
-      return wbsRepository.update(id, { name: body.name.trim() })
+    const updates: Parameters<typeof wbsRepository.update>[1] = {}
+    if (body.name !== undefined) updates.name = body.name.trim()
+    if (body.startDate !== undefined) {
+      updates.startDate = body.startDate != null && body.startDate !== '' ? new Date(body.startDate) : null
     }
-    return existing
+    if (body.durationDays !== undefined) updates.durationDays = body.durationDays
+    if (Object.keys(updates).length > 0) {
+      await wbsRepository.update(id, updates)
+    }
+    if (body.resourceIds !== undefined || body.resourceAssignments !== undefined) {
+      const assignments = resolveResourceAssignments(body)
+      await ensureResourceIdsInProject(projectId, assignments.map((a) => a.projectResourceId))
+      await wbsRepository.setNodeResourceAssignments(id, assignments)
+      await wbsRepository.recomputeAndUpdateVariableCost(id)
+    }
+    return (await wbsRepository.findById(id)) ?? existing
   },
 
   async delete(projectId: string, id: string, user: AuthUser): Promise<void> {

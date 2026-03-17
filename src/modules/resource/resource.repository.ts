@@ -26,6 +26,7 @@ export type ProjectResourceRecord = {
   unitCost: number
   capacityType: string | null
   dailyCapacity: number | null
+  vendor: string | null
   description: string | null
   createdAt: Date
   updatedAt: Date
@@ -40,6 +41,7 @@ const select = {
   unitCost: true,
   capacityType: true,
   dailyCapacity: true,
+  vendor: true,
   description: true,
   createdAt: true,
   updatedAt: true,
@@ -76,6 +78,7 @@ export const resourceRepository = {
     unitCost: number
     capacityType?: string | null
     dailyCapacity?: number | null
+    vendor?: string | null
     description?: string | null
   }): Promise<ProjectResourceRecord> {
     const projectResource = getProjectResourceDelegate()
@@ -88,6 +91,7 @@ export const resourceRepository = {
         unitCost: data.unitCost,
         capacityType: data.capacityType ?? null,
         dailyCapacity: data.dailyCapacity ?? null,
+        vendor: data.vendor ?? null,
         description: data.description ?? null,
       },
       select,
@@ -103,6 +107,7 @@ export const resourceRepository = {
       unitCost: number
       capacityType: string | null
       dailyCapacity: number | null
+      vendor: string | null
       description: string | null
     }>
   ): Promise<ProjectResourceRecord> {
@@ -115,6 +120,7 @@ export const resourceRepository = {
         ...(data.unitCost !== undefined && { unitCost: data.unitCost }),
         ...(data.capacityType !== undefined && { capacityType: data.capacityType }),
         ...(data.dailyCapacity !== undefined && { dailyCapacity: data.dailyCapacity }),
+        ...(data.vendor !== undefined && { vendor: data.vendor }),
         ...(data.description !== undefined && { description: data.description }),
       },
       select,

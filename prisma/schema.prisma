@@ -247,23 +247,41 @@ model Project {
 
 // ---------- WBS 工作分解結構（專案內樹狀，可拖移排序）----------
 model WbsNode {
-  id        String    @id @default(cuid())
-  projectId String    @map("project_id")
-  parentId  String?   @map("parent_id")
-  code      String    @map("code")       // 1, 1.1, 1.1.1（由系統依結構計算）
-  name      String    @map("name")
-  sortOrder Int       @default(0) @map("sort_order")  // 同層排序
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  id           String    @id @default(cuid())
+  projectId    String    @map("project_id")
+  parentId     String?   @map("parent_id")
+  code         String    @map("code")       // 1, 1.1, 1.1.1（由系統依結構計算）
+  name         String    @map("name")
+  sortOrder    Int       @default(0) @map("sort_order")  // 同層排序
+  startDate    DateTime? @map("start_date")  // 開始日期（甘特用）
+  durationDays Int?     @map("duration_days") // 工期（天），結束 = 開始 + 工期
+  variableCost Decimal? @map("variable_cost") @db.Decimal(14, 2) // 變動成本（由資源×用量計算後寫入）
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  parent   WbsNode?  @relation("WbsTree", fields: [parentId], references: [id], onDelete: Cascade)
-  children WbsNode[] @relation("WbsTree")
+  project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent         WbsNode?          @relation("WbsTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children       WbsNode[]         @relation("WbsTree")
   issueRiskLinks ProjectIssueRiskWbsNode[]
+  resourceLinks  WbsNodeResource[]
 
   @@index([projectId])
   @@index([parentId])
   @@map("wbs_nodes")
+}
+
+// WBS 節點 ↔ 專案資源 多對多（節點可選多個資源，含用量供變動成本計算）
+model WbsNodeResource {
+  wbsNodeId         String   @map("wbs_node_id")
+  projectResourceId String   @map("project_resource_id")
+  quantity          Decimal? @default(1) @map("quantity") @db.Decimal(14, 4) // 該節點使用該資源的用量（單位依 ProjectResource.unit）
+
+  wbsNode   WbsNode         @relation(fields: [wbsNodeId], references: [id], onDelete: Cascade)
+  resource  ProjectResource @relation(fields: [projectResourceId], references: [id], onDelete: Cascade)
+
+  @@id([wbsNodeId, projectResourceId])
+  @@index([projectResourceId])
+  @@map("wbs_node_resources")
 }
 
 // ---------- 議題風險表（專案內：議題說明、負責人、緊急程度、影像任務 WBS、狀態）----------
@@ -308,11 +326,13 @@ model ProjectResource {
   unitCost       Float     @default(0) @map("unit_cost")   // 單位成本
   capacityType   String?   @map("capacity_type")   // 容量類型（選填）
   dailyCapacity  Float?    @map("daily_capacity")  // 每日容量（選填）
+  vendor         String?   @map("vendor")          // 廠商（選填）
   description    String?   @map("description")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  wbsNodeLinks WbsNodeResource[]
 
   @@index([projectId])
   @@index([projectId, type])
