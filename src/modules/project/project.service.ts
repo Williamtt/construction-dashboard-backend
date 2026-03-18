@@ -132,13 +132,29 @@ export const projectService = {
     if (user.systemRole === 'tenant_admin' && !tenantId) {
       throw new AppError(400, 'BAD_REQUEST', '租戶管理員所屬租戶不明')
     }
-    return projectRepository.create({
+    const project = await projectRepository.create({
       name: data.name,
       description: data.description ?? null,
       code: data.code ?? null,
       status: data.status ?? 'active',
       tenantId,
     })
+    try {
+      await prisma.wbsNode.create({
+        data: {
+          id: `wbs-root-${project.id}`,
+          projectId: project.id,
+          parentId: null,
+          code: '1',
+          name: project.name,
+          sortOrder: 0,
+          isProjectRoot: true,
+        },
+      })
+    } catch {
+      // 並發或已存在根節點時略過
+    }
+    return project
   },
 
   async update(id: string, data: UpdateProjectBody, user: AuthUser): Promise<ProjectListItem> {

@@ -254,8 +254,10 @@ model WbsNode {
   name         String    @map("name")
   sortOrder    Int       @default(0) @map("sort_order")  // 同層排序
   startDate    DateTime? @map("start_date")  // 開始日期（甘特用）
-  durationDays Int?     @map("duration_days") // 工期（天），結束 = 開始 + 工期
+  durationDays Int?     @map("duration_days") // 工期（天，含開始日）；結束 = 開始 + 工期 − 1
   variableCost Decimal? @map("variable_cost") @db.Decimal(14, 2) // 變動成本（由資源×用量計算後寫入）
+  /// 專案根節點（名稱=專案名，僅 seed／遷移建立，不可刪改拖移）
+  isProjectRoot Boolean  @default(false) @map("is_project_root")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 

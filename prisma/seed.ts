@@ -132,6 +132,24 @@ async function main() {
   })
   console.log('Project members created')
 
+  /** 每專案一筆 WBS 專案根（專案名稱層，供統計與階層包絡；不可刪改） */
+  for (const p of [proj1, proj2]) {
+    await prisma.wbsNode.upsert({
+      where: { id: `wbs-root-${p.id}` },
+      update: {},
+      create: {
+        id: `wbs-root-${p.id}`,
+        projectId: p.id,
+        parentId: null,
+        code: '1',
+        name: p.name,
+        sortOrder: 0,
+        isProjectRoot: true,
+      },
+    })
+  }
+  console.log('WBS project roots (示範工程 A/B)')
+
   console.log('Seed done.')
 }
 

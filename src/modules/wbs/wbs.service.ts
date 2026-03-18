@@ -12,6 +12,7 @@ export type WbsNodeTree = {
   id: string
   code: string
   name: string
+  isProjectRoot: boolean
   startDate: string | null
   durationDays: number | null
   endDate: string | null // 依 startDate + durationDays 推算
@@ -63,10 +64,11 @@ type FlatWithResources = WbsNodeRecord & {
   resources: { id: string; name: string; type: string; unit: string; unitCost: number; quantity: number }[]
 }
 
+/** 結束日 = 開始 + (工期−1) 日曆天（含開始日）；前置鏈才對完成日 +1 得後續開始 */
 function toEndDate(startDate: Date | null, durationDays: number | null): string | null {
   if (!startDate || durationDays == null || durationDays < 1) return null
   const end = new Date(startDate)
-  end.setDate(end.getDate() + durationDays)
+  end.setDate(end.getDate() + durationDays - 1)
   return end.toISOString().slice(0, 10)
 }
 
@@ -78,6 +80,7 @@ function buildTree(flat: FlatWithResources[], parentId: string | null): WbsNodeT
       id: n.id,
       code: n.code,
       name: n.name,
+      isProjectRoot: n.isProjectRoot,
       startDate: n.startDate ? n.startDate.toISOString().slice(0, 10) : null,
       durationDays: n.durationDays,
       endDate: toEndDate(n.startDate, n.durationDays),
@@ -108,17 +111,41 @@ function recalculateCodes(nodes: WbsNodeRecord[], parentCode: string | null = nu
   return result
 }
 
+async function getProjectRootId(projectId: string): Promise<string> {
+  const r = await prisma.wbsNode.findFirst({
+    where: { projectId, isProjectRoot: true },
+    select: { id: true },
+  })
+  if (!r) {
+    throw new AppError(500, 'INTERNAL_ERROR', '專案缺少 WBS 專案根節點，請聯絡管理員')
+  }
+  return r.id
+}
+
+async function syncWbsCodesIfNeeded(projectId: string): Promise<void> {
+  const flat = await wbsRepository.findManyByProjectId(projectId)
+  const updates = recalculateCodes(flat)
+  for (const u of updates) {
+    const n = flat.find((x) => x.id === u.id)
+    if (n && n.code !== u.code) {
+      await wbsRepository.update(u.id, { code: u.code })
+    }
+  }
+}
+
 export const wbsService = {
   async list(projectId: string, user: AuthUser): Promise<WbsNodeTree[]> {
     await ensureProjectAccess(projectId, user)
+    await syncWbsCodesIfNeeded(projectId)
     const flat = await wbsRepository.findManyByProjectIdWithResources(projectId)
     return buildTree(flat, null)
   },
 
   async create(projectId: string, body: CreateWbsNodeBody, user: AuthUser): Promise<WbsNodeRecord> {
     await ensureProjectAccess(projectId, user)
-    const parentId = body.parentId ?? null
-    if (parentId) {
+    const rootId = await getProjectRootId(projectId)
+    const parentId = body.parentId != null && body.parentId !== '' ? body.parentId : rootId
+    {
       const parent = await wbsRepository.findById(parentId)
       if (!parent || parent.projectId !== projectId) {
         throw new AppError(404, 'NOT_FOUND', '找不到指定的父節點')
@@ -158,16 +185,26 @@ export const wbsService = {
     if (!existing || existing.projectId !== projectId) {
       throw new AppError(404, 'NOT_FOUND', '找不到該 WBS 節點')
     }
+    if (existing.isProjectRoot) {
+      throw new AppError(400, 'BAD_REQUEST', '專案根節點（專案名稱層）不可修改')
+    }
+    const hasChildren = (await prisma.wbsNode.count({ where: { parentId: id } })) > 0
     const updates: Parameters<typeof wbsRepository.update>[1] = {}
     if (body.name !== undefined) updates.name = body.name.trim()
-    if (body.startDate !== undefined) {
-      updates.startDate = body.startDate != null && body.startDate !== '' ? new Date(body.startDate) : null
+    /** 父節點僅允許改名稱；排程與資源由子項決定 */
+    if (!hasChildren) {
+      if (body.startDate !== undefined) {
+        updates.startDate = body.startDate != null && body.startDate !== '' ? new Date(body.startDate) : null
+      }
+      if (body.durationDays !== undefined) updates.durationDays = body.durationDays
     }
-    if (body.durationDays !== undefined) updates.durationDays = body.durationDays
     if (Object.keys(updates).length > 0) {
       await wbsRepository.update(id, updates)
     }
-    if (body.resourceIds !== undefined || body.resourceAssignments !== undefined) {
+    if (
+      !hasChildren &&
+      (body.resourceIds !== undefined || body.resourceAssignments !== undefined)
+    ) {
       const assignments = resolveResourceAssignments(body)
       await ensureResourceIdsInProject(projectId, assignments.map((a) => a.projectResourceId))
       await wbsRepository.setNodeResourceAssignments(id, assignments)
@@ -182,6 +219,9 @@ export const wbsService = {
     if (!existing || existing.projectId !== projectId) {
       throw new AppError(404, 'NOT_FOUND', '找不到該 WBS 節點')
     }
+    if (existing.isProjectRoot) {
+      throw new AppError(400, 'BAD_REQUEST', '不可刪除專案根節點')
+    }
     await deleteRecursive(id)
     const flat = await wbsRepository.findManyByProjectId(projectId)
     await applyCodeUpdates(flat)
@@ -193,8 +233,13 @@ export const wbsService = {
     if (!node || node.projectId !== projectId) {
       throw new AppError(404, 'NOT_FOUND', '找不到該 WBS 節點')
     }
-    const newParentId = body.parentId ?? null
-    if (newParentId) {
+    if (node.isProjectRoot) {
+      throw new AppError(400, 'BAD_REQUEST', '不可移動專案根節點')
+    }
+    const rootId = await getProjectRootId(projectId)
+    const newParentId =
+      body.parentId != null && body.parentId !== '' ? body.parentId : rootId
+    {
       const parent = await wbsRepository.findById(newParentId)
       if (!parent || parent.projectId !== projectId) {
         throw new AppError(404, 'NOT_FOUND', '找不到指定的父節點')

@@ -10,6 +10,7 @@ export type WbsNodeRecord = {
   startDate: Date | null
   durationDays: number | null
   variableCost: number | null
+  isProjectRoot: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -24,6 +25,7 @@ const select = {
   startDate: true,
   durationDays: true,
   variableCost: true,
+  isProjectRoot: true,
   createdAt: true,
   updatedAt: true,
 } as const
@@ -62,6 +64,7 @@ export const wbsRepository = {
     sortOrder: number
     startDate?: Date | null
     durationDays?: number | null
+    isProjectRoot?: boolean
   }): Promise<WbsNodeRecord> {
     const row = await prisma.wbsNode.create({
       data: {
@@ -72,6 +75,7 @@ export const wbsRepository = {
         sortOrder: data.sortOrder,
         startDate: data.startDate ?? undefined,
         durationDays: data.durationDays ?? undefined,
+        isProjectRoot: data.isProjectRoot ?? false,
       },
       select,
     })
