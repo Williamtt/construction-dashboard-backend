@@ -26,6 +26,7 @@ model Tenant {
   users         User[]
   projects      Project[]
   formTemplates FormTemplate[]
+  selfInspectionTemplates SelfInspectionTemplate[]
 }
 
 // ---------- 人員（使用者）----------
@@ -57,6 +58,9 @@ model User {
   announcementReads AnnouncementRead[]
   photoFavorites    UserPhotoFavorite[]
   assignedIssueRisks ProjectIssueRisk[]
+  defectExecutionRecords   DefectExecutionRecord[]
+  repairExecutionRecords   RepairExecutionRecord[]
+  selfInspectionRecordsFilled SelfInspectionRecord[]
 }
 
 // ---------- 登入紀錄（平台監控用）----------
@@ -169,6 +173,100 @@ model FormTemplate {
   @@map("form_templates")
 }
 
+// ---------- 自主檢查樣板（租戶後台：查驗表單結構；區塊供現場／專案自主檢查引用）----------
+model SelfInspectionTemplate {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  name         String   @map("name")
+  description  String?  @map("description")
+  status       String   @default("active") @map("status") // active | archived
+  /// 表單頂部基本資料：工程名稱、檢查時機選項、檢查結果圖例等（JSON；null 表示用後端預設）
+  headerConfig Json?    @map("header_config")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  blocks SelfInspectionTemplateBlock[]
+  records SelfInspectionRecord[]
+  projectLinks ProjectSelfInspectionTemplateLink[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("self_inspection_templates")
+}
+
+/// 專案自選匯入之自主檢查樣板（未匯入者不出現在專案內；僅該樣板於專案內查驗次數為 0 時可移除匯入）
+model ProjectSelfInspectionTemplateLink {
+  id         String   @id @default(cuid())
+  projectId  String   @map("project_id")
+  templateId String   @map("template_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project  Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  template SelfInspectionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, templateId])
+  @@index([projectId])
+  @@index([templateId])
+  @@map("project_self_inspection_template_links")
+}
+
+/// 專案內自主查驗填寫紀錄（每次完整填寫一張表為一筆；統計次數即 COUNT）
+model SelfInspectionRecord {
+  id            String   @id @default(cuid())
+  projectId     String   @map("project_id")
+  templateId    String   @map("template_id")
+  /// 抬頭與各列填寫：header、items[itemId]→actualText/resultOptionId 等（JSON）
+  filledPayload Json     @map("filled_payload")
+  /// 建立當下之樣板結構（template+blocks+items+headerConfig），供詳情顯示；租戶日後改樣板不影響本筆
+  structureSnapshot Json? @map("structure_snapshot")
+  filledById    String?  @map("filled_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  project  Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  template SelfInspectionTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  filledBy User?                  @relation(fields: [filledById], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([projectId, templateId])
+  @@index([templateId])
+  @@map("self_inspection_records")
+}
+
+model SelfInspectionTemplateBlock {
+  id          String   @id @default(cuid())
+  templateId  String   @map("template_id")
+  title       String   @map("title")
+  description String?  @map("description")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  template SelfInspectionTemplate             @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  items    SelfInspectionTemplateBlockItem[]
+
+  @@index([templateId])
+  @@map("self_inspection_template_blocks")
+}
+
+/// 區塊內查驗列：分類（列合併）、檢查項目、規範標準；實際填寫欄位於現場執行時使用
+model SelfInspectionTemplateBlockItem {
+  id             String   @id @default(cuid())
+  blockId        String   @map("block_id")
+  categoryLabel  String   @map("category_label")
+  itemName       String   @map("item_name")
+  standardText   String   @map("standard_text")
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  block SelfInspectionTemplateBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  @@index([blockId])
+  @@map("self_inspection_template_block_items")
+}
+
 // ---------- 附件（檔案上傳 metadata，實體存儲存層）----------
 model Attachment {
   id            String    @id @default(cuid())
@@ -243,6 +341,32 @@ model Project {
   wbsNodes            WbsNode[]
   issueRisks          ProjectIssueRisk[]
   resources           ProjectResource[]
+  defectImprovements    DefectImprovement[]
+  repairRequests                        RepairRequest[]
+  selfInspectionRecords                 SelfInspectionRecord[]
+  projectSelfInspectionTemplateLinks    ProjectSelfInspectionTemplateLink[]
+  drawingNodes                          DrawingNode[]
+}
+
+// ---------- 圖說管理（專案內樹狀：folder=分類、leaf=圖說項；版本用 Attachment category=drawing_revision, businessId=leafId）----------
+model DrawingNode {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  parentId  String?  @map("parent_id")
+  /// folder | leaf（僅 leaf 可上傳檔案／版本鏈）
+  kind      String   @map("kind")
+  name      String   @map("name")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project  Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent   DrawingNode?    @relation("DrawingTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children DrawingNode[]   @relation("DrawingTree")
+
+  @@index([projectId])
+  @@index([parentId])
+  @@map("drawing_nodes")
 }
 
 // ---------- WBS 工作分解結構（專案內樹狀，可拖移排序）----------
@@ -468,4 +592,80 @@ model Camera {
   @@index([tenantId])
   @@index([streamToken])
   @@map("cameras")
+}
+
+// ---------- 缺失改善（手機／現場：問題說明、發現人、優先度、樓層、位置、狀態、照片）----------
+model DefectImprovement {
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  description  String   @map("description")   // 問題說明
+  discoveredBy String   @map("discovered_by") // 發現人（姓名）
+  priority     String   @default("medium") @map("priority")  // low | medium | high
+  floor        String?  @map("floor")         // 樓層
+  location     String?  @map("location")      // 位置
+  status       String   @default("in_progress") @map("status") // in_progress | completed
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  project  Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  records  DefectExecutionRecord[]
+
+  @@index([projectId])
+  @@index([projectId, status])
+  @@map("defect_improvements")
+}
+
+// ---------- 缺失改善執行紀錄（歷程：內容、紀錄人、時間；照片用 Attachment businessId=id, category=defect_record）----------
+model DefectExecutionRecord {
+  id          String   @id @default(cuid())
+  defectId    String   @map("defect_id")
+  content     String   @map("content")       // 執行紀錄內容
+  recordedById String? @map("recorded_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  defect   DefectImprovement @relation(fields: [defectId], references: [id], onDelete: Cascade)
+  recordedBy User?           @relation(fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([defectId])
+  @@map("defect_execution_records")
+}
+
+// ---------- 報修單（手機／現場：客戶、聯絡、報修內容、戶別、問題類別、日期、照片與附件）----------
+model RepairRequest {
+  id               String    @id @default(cuid())
+  projectId        String    @map("project_id")
+  customerName     String    @map("customer_name")
+  contactPhone     String    @map("contact_phone")
+  repairContent    String    @map("repair_content")
+  unitLabel        String?   @map("unit_label")
+  remarks          String?   @map("remarks")
+  problemCategory  String    @map("problem_category")
+  isSecondRepair   Boolean   @default(false) @map("is_second_repair")
+  deliveryDate     DateTime? @map("delivery_date")
+  repairDate       DateTime? @map("repair_date")
+  status           String    @default("in_progress") @map("status") // in_progress | completed
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  project Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  records RepairExecutionRecord[]
+
+  @@index([projectId])
+  @@index([projectId, status])
+  @@map("repair_requests")
+}
+
+// ---------- 報修紀錄（處理歷程；照片用 Attachment businessId=id, category=repair_record）----------
+model RepairExecutionRecord {
+  id             String   @id @default(cuid())
+  repairId       String   @map("repair_id")
+  content        String   @map("content")
+  recordedById   String?  @map("recorded_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  repair     RepairRequest @relation(fields: [repairId], references: [id], onDelete: Cascade)
+  recordedBy User?        @relation(fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([repairId])
+  @@map("repair_execution_records")
 }

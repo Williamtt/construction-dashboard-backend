@@ -10,6 +10,7 @@ import { userService } from '../modules/user/index.js'
 import { fileRepository } from '../modules/file/file.repository.js'
 import { storage } from '../lib/storage.js'
 import { formTemplateController } from '../modules/form-template/index.js'
+import { selfInspectionTemplateController } from '../modules/self-inspection-template/index.js'
 import { uploadSingleFile } from '../middleware/upload.js'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { AppError } from '../shared/errors.js'
@@ -434,3 +435,59 @@ adminRouter.get('/form-templates', asyncHandler(formTemplateController.listDefau
 
 /** POST /api/v1/admin/form-templates — 後台新增預設樣板（multipart: file, name, description） */
 adminRouter.post('/form-templates', uploadSingleFile, asyncHandler(formTemplateController.createDefault.bind(formTemplateController)))
+
+/** GET /api/v1/admin/self-inspection-templates — 自主檢查樣板列表（本租戶）；query: tenantId（platform_admin）、status */
+adminRouter.get(
+  '/self-inspection-templates',
+  asyncHandler(selfInspectionTemplateController.list.bind(selfInspectionTemplateController))
+)
+/** POST /api/v1/admin/self-inspection-templates — 新增樣板；body 可含 tenantId（platform_admin） */
+adminRouter.post(
+  '/self-inspection-templates',
+  asyncHandler(selfInspectionTemplateController.create.bind(selfInspectionTemplateController))
+)
+/** POST /api/v1/admin/self-inspection-templates/:id/blocks — 新增區塊 */
+adminRouter.post(
+  '/self-inspection-templates/:id/blocks',
+  asyncHandler(selfInspectionTemplateController.createBlock.bind(selfInspectionTemplateController))
+)
+/** PATCH /api/v1/admin/self-inspection-templates/:id/blocks/:blockId */
+adminRouter.patch(
+  '/self-inspection-templates/:id/blocks/:blockId',
+  asyncHandler(selfInspectionTemplateController.updateBlock.bind(selfInspectionTemplateController))
+)
+/** DELETE /api/v1/admin/self-inspection-templates/:id/blocks/:blockId */
+adminRouter.delete(
+  '/self-inspection-templates/:id/blocks/:blockId',
+  asyncHandler(selfInspectionTemplateController.deleteBlock.bind(selfInspectionTemplateController))
+)
+/** POST /api/v1/admin/self-inspection-templates/:id/blocks/:blockId/items — 區塊內新增查驗列 */
+adminRouter.post(
+  '/self-inspection-templates/:id/blocks/:blockId/items',
+  asyncHandler(selfInspectionTemplateController.createBlockItem.bind(selfInspectionTemplateController))
+)
+/** PATCH /api/v1/admin/self-inspection-templates/:id/blocks/:blockId/items/:itemId */
+adminRouter.patch(
+  '/self-inspection-templates/:id/blocks/:blockId/items/:itemId',
+  asyncHandler(selfInspectionTemplateController.updateBlockItem.bind(selfInspectionTemplateController))
+)
+/** DELETE /api/v1/admin/self-inspection-templates/:id/blocks/:blockId/items/:itemId */
+adminRouter.delete(
+  '/self-inspection-templates/:id/blocks/:blockId/items/:itemId',
+  asyncHandler(selfInspectionTemplateController.deleteBlockItem.bind(selfInspectionTemplateController))
+)
+/** GET /api/v1/admin/self-inspection-templates/:id — 樣板＋區塊 */
+adminRouter.get(
+  '/self-inspection-templates/:id',
+  asyncHandler(selfInspectionTemplateController.getById.bind(selfInspectionTemplateController))
+)
+/** PATCH /api/v1/admin/self-inspection-templates/:id */
+adminRouter.patch(
+  '/self-inspection-templates/:id',
+  asyncHandler(selfInspectionTemplateController.update.bind(selfInspectionTemplateController))
+)
+/** DELETE /api/v1/admin/self-inspection-templates/:id */
+adminRouter.delete(
+  '/self-inspection-templates/:id',
+  asyncHandler(selfInspectionTemplateController.delete.bind(selfInspectionTemplateController))
+)
