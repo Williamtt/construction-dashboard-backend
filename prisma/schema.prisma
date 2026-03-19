@@ -58,6 +58,7 @@ model User {
   photoFavorites    UserPhotoFavorite[]
   assignedIssueRisks ProjectIssueRisk[]
   defectExecutionRecords DefectExecutionRecord[]
+  repairExecutionRecords RepairExecutionRecord[]
 }
 
 // ---------- 登入紀錄（平台監控用）----------
@@ -245,6 +246,7 @@ model Project {
   issueRisks          ProjectIssueRisk[]
   resources           ProjectResource[]
   defectImprovements  DefectImprovement[]
+  repairRequests      RepairRequest[]
 }
 
 // ---------- WBS 工作分解結構（專案內樹狀，可拖移排序）----------
@@ -506,4 +508,44 @@ model DefectExecutionRecord {
 
   @@index([defectId])
   @@map("defect_execution_records")
+}
+
+// ---------- 報修單（手機／現場：客戶、聯絡、報修內容、戶別、問題類別、日期、照片與附件）----------
+model RepairRequest {
+  id               String    @id @default(cuid())
+  projectId        String    @map("project_id")
+  customerName     String    @map("customer_name")
+  contactPhone     String    @map("contact_phone")
+  repairContent    String    @map("repair_content")
+  unitLabel        String?   @map("unit_label")
+  remarks          String?   @map("remarks")
+  problemCategory  String    @map("problem_category")
+  isSecondRepair   Boolean   @default(false) @map("is_second_repair")
+  deliveryDate     DateTime? @map("delivery_date")
+  repairDate       DateTime? @map("repair_date")
+  status           String    @default("in_progress") @map("status") // in_progress | completed
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  project Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  records RepairExecutionRecord[]
+
+  @@index([projectId])
+  @@index([projectId, status])
+  @@map("repair_requests")
+}
+
+// ---------- 報修紀錄（處理歷程；照片用 Attachment businessId=id, category=repair_record）----------
+model RepairExecutionRecord {
+  id             String   @id @default(cuid())
+  repairId       String   @map("repair_id")
+  content        String   @map("content")
+  recordedById   String?  @map("recorded_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  repair     RepairRequest @relation(fields: [repairId], references: [id], onDelete: Cascade)
+  recordedBy User?        @relation(fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([repairId])
+  @@map("repair_execution_records")
 }
