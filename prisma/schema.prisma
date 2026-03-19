@@ -26,6 +26,7 @@ model Tenant {
   users         User[]
   projects      Project[]
   formTemplates FormTemplate[]
+  selfInspectionTemplates SelfInspectionTemplate[]
 }
 
 // ---------- 人員（使用者）----------
@@ -57,8 +58,9 @@ model User {
   announcementReads AnnouncementRead[]
   photoFavorites    UserPhotoFavorite[]
   assignedIssueRisks ProjectIssueRisk[]
-  defectExecutionRecords DefectExecutionRecord[]
-  repairExecutionRecords RepairExecutionRecord[]
+  defectExecutionRecords   DefectExecutionRecord[]
+  repairExecutionRecords   RepairExecutionRecord[]
+  selfInspectionRecordsFilled SelfInspectionRecord[]
 }
 
 // ---------- 登入紀錄（平台監控用）----------
@@ -171,6 +173,100 @@ model FormTemplate {
   @@map("form_templates")
 }
 
+// ---------- 自主檢查樣板（租戶後台：查驗表單結構；區塊供現場／專案自主檢查引用）----------
+model SelfInspectionTemplate {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  name         String   @map("name")
+  description  String?  @map("description")
+  status       String   @default("active") @map("status") // active | archived
+  /// 表單頂部基本資料：工程名稱、檢查時機選項、檢查結果圖例等（JSON；null 表示用後端預設）
+  headerConfig Json?    @map("header_config")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  blocks SelfInspectionTemplateBlock[]
+  records SelfInspectionRecord[]
+  projectLinks ProjectSelfInspectionTemplateLink[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("self_inspection_templates")
+}
+
+/// 專案自選匯入之自主檢查樣板（未匯入者不出現在專案內；僅該樣板於專案內查驗次數為 0 時可移除匯入）
+model ProjectSelfInspectionTemplateLink {
+  id         String   @id @default(cuid())
+  projectId  String   @map("project_id")
+  templateId String   @map("template_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project  Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  template SelfInspectionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, templateId])
+  @@index([projectId])
+  @@index([templateId])
+  @@map("project_self_inspection_template_links")
+}
+
+/// 專案內自主查驗填寫紀錄（每次完整填寫一張表為一筆；統計次數即 COUNT）
+model SelfInspectionRecord {
+  id            String   @id @default(cuid())
+  projectId     String   @map("project_id")
+  templateId    String   @map("template_id")
+  /// 抬頭與各列填寫：header、items[itemId]→actualText/resultOptionId 等（JSON）
+  filledPayload Json     @map("filled_payload")
+  /// 建立當下之樣板結構（template+blocks+items+headerConfig），供詳情顯示；租戶日後改樣板不影響本筆
+  structureSnapshot Json? @map("structure_snapshot")
+  filledById    String?  @map("filled_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  project  Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  template SelfInspectionTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  filledBy User?                  @relation(fields: [filledById], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([projectId, templateId])
+  @@index([templateId])
+  @@map("self_inspection_records")
+}
+
+model SelfInspectionTemplateBlock {
+  id          String   @id @default(cuid())
+  templateId  String   @map("template_id")
+  title       String   @map("title")
+  description String?  @map("description")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  template SelfInspectionTemplate             @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  items    SelfInspectionTemplateBlockItem[]
+
+  @@index([templateId])
+  @@map("self_inspection_template_blocks")
+}
+
+/// 區塊內查驗列：分類（列合併）、檢查項目、規範標準；實際填寫欄位於現場執行時使用
+model SelfInspectionTemplateBlockItem {
+  id             String   @id @default(cuid())
+  blockId        String   @map("block_id")
+  categoryLabel  String   @map("category_label")
+  itemName       String   @map("item_name")
+  standardText   String   @map("standard_text")
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  block SelfInspectionTemplateBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  @@index([blockId])
+  @@map("self_inspection_template_block_items")
+}
+
 // ---------- 附件（檔案上傳 metadata，實體存儲存層）----------
 model Attachment {
   id            String    @id @default(cuid())
@@ -245,8 +341,10 @@ model Project {
   wbsNodes            WbsNode[]
   issueRisks          ProjectIssueRisk[]
   resources           ProjectResource[]
-  defectImprovements  DefectImprovement[]
-  repairRequests      RepairRequest[]
+  defectImprovements    DefectImprovement[]
+  repairRequests                        RepairRequest[]
+  selfInspectionRecords                 SelfInspectionRecord[]
+  projectSelfInspectionTemplateLinks    ProjectSelfInspectionTemplateLink[]
 }
 
 // ---------- WBS 工作分解結構（專案內樹狀，可拖移排序）----------
