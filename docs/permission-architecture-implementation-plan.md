@@ -215,10 +215,10 @@ repair.overview, repair.record
 
 ### Phase 4：前端
 
-- [ ] API client + types
-- [ ] store + `usePermission`
-- [ ] 側欄與關鍵按鈕 `v-if`
-- [ ] 後台矩陣 UI、專案內覆寫 UI
+- [x] API client + types（`src/api/project-permissions.ts` 等）
+- [x] store + composable（`projectPermissions` store、`useProjectPermission`、路由守衛）
+- [x] 側欄與關鍵入口過濾（`AppSidebar` 等）
+- [x] 後台租戶權限範本矩陣（`AdminMembersView`）+ **專案內成員覆寫**（契約 → 專案成員：`ProjectMembersView` 更多選單「專案權限」）
 
 ### Phase 5：稽核強化（可與 Phase 3 交錯）
 

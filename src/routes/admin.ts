@@ -15,6 +15,7 @@ import { uploadSingleFile } from '../middleware/upload.js'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { AppError } from '../shared/errors.js'
 import { notDeleted, softDeleteSet } from '../shared/soft-delete.js'
+import { projectPermissionController } from '../modules/project-permission/project-permission.controller.js'
 
 export const adminRouter = Router()
 
@@ -323,6 +324,22 @@ adminRouter.post(
     })
     res.status(201).json({ data: created })
   })
+)
+
+/** GET /api/v1/admin/users/:id/permission-template — 成員權限範本（矩陣）；platform_admin 須 ?tenantId= */
+adminRouter.get(
+  '/users/:id/permission-template',
+  asyncHandler(projectPermissionController.getTenantTemplate.bind(projectPermissionController))
+)
+/** PUT /api/v1/admin/users/:id/permission-template — 整批取代範本（body.modules 須含全部模組） */
+adminRouter.put(
+  '/users/:id/permission-template',
+  asyncHandler(projectPermissionController.replaceTenantTemplate.bind(projectPermissionController))
+)
+/** POST /api/v1/admin/users/:id/permission-template/apply-preset — 套用預設角色 */
+adminRouter.post(
+  '/users/:id/permission-template/apply-preset',
+  asyncHandler(projectPermissionController.applyTenantPreset.bind(projectPermissionController))
 )
 
 /** GET /api/v1/admin/users/:id — 取得單一成員詳情（檢視成員資料） */

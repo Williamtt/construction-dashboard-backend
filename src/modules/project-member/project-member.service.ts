@@ -4,6 +4,8 @@ import { notDeleted } from '../../shared/soft-delete.js'
 import { projectMemberRepository, type ProjectMemberItem } from './project-member.repository.js'
 import { projectRepository } from '../project/project.repository.js'
 import type { AddProjectMemberBody } from '../../schemas/project-member.js'
+import { projectPermissionRepository } from '../project-permission/project-permission.repository.js'
+import { syncProjectMemberPermissionsFromTemplate } from '../project-permission/project-permission.service.js'
 
 type AuthUser = {
   id: string
@@ -75,14 +77,17 @@ export const projectMemberService = {
     }
     const exists = await projectMemberRepository.exists(projectId, data.userId)
     if (exists) throw new AppError(409, 'CONFLICT', '該成員已在專案中')
+    let createdRole: 'project_admin' | 'member' | 'viewer' = 'member'
     try {
-      await projectMemberRepository.create(projectId, data.userId, 'member')
+      const row = await projectMemberRepository.create(projectId, data.userId, 'member')
+      createdRole = row.role
     } catch (e) {
       if (e instanceof Error && e.message === 'PROJECT_MEMBER_ALREADY_ACTIVE') {
         throw new AppError(409, 'CONFLICT', '該成員已在專案中')
       }
       throw e
     }
+    await syncProjectMemberPermissionsFromTemplate(projectId, data.userId, project.tenantId, createdRole)
     const list = await projectMemberRepository.findManyByProjectId(projectId)
     const added = list.find((m) => m.userId === data.userId)
     if (!added) throw new AppError(500, 'INTERNAL_ERROR', '新增後無法取得成員資料')
@@ -93,6 +98,7 @@ export const projectMemberService = {
     await ensureCanManageProjectMembers(projectId, user)
     const exists = await projectMemberRepository.exists(projectId, userId)
     if (!exists) throw new AppError(404, 'NOT_FOUND', '該使用者不是此專案成員')
+    await projectPermissionRepository.deleteManyProjectUser(projectId, userId)
     await projectMemberRepository.deleteByProjectAndUser(projectId, userId, user.id)
   },
 

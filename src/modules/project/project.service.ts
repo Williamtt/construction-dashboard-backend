@@ -1,6 +1,8 @@
 import { prisma } from '../../lib/db.js'
 import { AppError } from '../../shared/errors.js'
 import { notDeleted } from '../../shared/soft-delete.js'
+import { assertCanAccessProject } from '../../shared/project-access.js'
+import { assertProjectModuleAction } from '../project-permission/project-permission.service.js'
 import { projectRepository, type ProjectListItem } from './project.repository.js'
 import type { CreateProjectBody, UpdateProjectBody } from '../../schemas/project.js'
 
@@ -99,24 +101,9 @@ export const projectService = {
     if (!project) {
       throw new AppError(404, 'NOT_FOUND', '找不到該專案')
     }
-    if (user.systemRole === 'platform_admin') {
-      const sumApprovedDays = await getSumApprovedDays(id)
-      return applyComputedDates(project, sumApprovedDays)
-    }
-    if (user.systemRole === 'tenant_admin') {
-      if (project.tenantId !== user.tenantId) {
-        throw new AppError(403, 'FORBIDDEN', '無權限存取此專案')
-      }
-      const sumApprovedDays = await getSumApprovedDays(id)
-      return applyComputedDates(project, sumApprovedDays)
-    }
-    // project_user：須為專案成員且狀態為 active
-    const member = await prisma.projectMember.findFirst({
-      where: { projectId: id, userId: user.id, ...notDeleted },
-      select: { status: true },
-    })
-    if (!member || member.status !== 'active') {
-      throw new AppError(403, 'FORBIDDEN', '無權限存取此專案')
+    await assertCanAccessProject(user, id)
+    if (user.systemRole === 'project_user') {
+      await assertProjectModuleAction(user, id, 'project.overview', 'read')
     }
     const sumApprovedDays = await getSumApprovedDays(id)
     return applyComputedDates(project, sumApprovedDays)
@@ -163,7 +150,10 @@ export const projectService = {
     if (!project) {
       throw new AppError(404, 'NOT_FOUND', '找不到該專案')
     }
-    if (user.systemRole !== 'platform_admin' && project.tenantId !== user.tenantId) {
+    await assertCanAccessProject(user, id)
+    if (user.systemRole === 'project_user') {
+      await assertProjectModuleAction(user, id, 'project.overview', 'update')
+    } else if (user.systemRole !== 'platform_admin' && project.tenantId !== user.tenantId) {
       throw new AppError(403, 'FORBIDDEN', '無權限編輯此專案')
     }
     const payload: Parameters<typeof projectRepository.update>[1] = {}
