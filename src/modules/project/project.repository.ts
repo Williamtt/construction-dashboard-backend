@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/db.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 
 const projectSelect = {
   id: true,
@@ -48,7 +49,8 @@ export type ProjectListItem = {
 
 export const projectRepository = {
   async findMany(args: { skip: number; take: number; tenantId?: string | null }) {
-    const where = args.tenantId !== undefined ? { tenantId: args.tenantId } : undefined
+    const where =
+      args.tenantId !== undefined ? { tenantId: args.tenantId, ...notDeleted } : { ...notDeleted }
     return prisma.project.findMany({
       where,
       skip: args.skip,
@@ -62,8 +64,9 @@ export const projectRepository = {
   async findManyByMemberUserId(args: { userId: string; skip: number; take: number }) {
     return prisma.project.findMany({
       where: {
+        ...notDeleted,
         projectMembers: {
-          some: { userId: args.userId, status: 'active' },
+          some: { userId: args.userId, status: 'active', ...notDeleted },
         },
       },
       skip: args.skip,
@@ -74,23 +77,24 @@ export const projectRepository = {
   },
 
   async count(tenantId?: string | null) {
-    const where = tenantId !== undefined ? { tenantId } : undefined
+    const where = tenantId !== undefined ? { tenantId, ...notDeleted } : { ...notDeleted }
     return prisma.project.count({ where })
   },
 
   async countByMemberUserId(userId: string) {
     return prisma.project.count({
       where: {
+        ...notDeleted,
         projectMembers: {
-          some: { userId, status: 'active' },
+          some: { userId, status: 'active', ...notDeleted },
         },
       },
     })
   },
 
   async findById(id: string) {
-    return prisma.project.findUnique({
-      where: { id },
+    return prisma.project.findFirst({
+      where: { id, ...notDeleted },
       select: projectSelect,
     }) as Promise<ProjectListItem | null>
   },

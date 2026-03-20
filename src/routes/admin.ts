@@ -14,6 +14,7 @@ import { selfInspectionTemplateController } from '../modules/self-inspection-tem
 import { uploadSingleFile } from '../middleware/upload.js'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { AppError } from '../shared/errors.js'
+import { notDeleted, softDeleteSet } from '../shared/soft-delete.js'
 
 export const adminRouter = Router()
 
@@ -29,8 +30,8 @@ adminRouter.get(
     if (user.systemRole !== 'platform_admin' && user.tenantId !== tenantId) {
       throw new AppError(403, 'FORBIDDEN', '僅能查看所屬租戶資訊')
     }
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
+    const tenant = await prisma.tenant.findFirst({
+      where: { id: tenantId, ...notDeleted },
       select: {
         id: true,
         name: true,
@@ -43,20 +44,21 @@ adminRouter.get(
         storageQuotaMb: true,
         createdAt: true,
         updatedAt: true,
-        _count: { select: { users: true, projects: true } },
       },
     })
     if (!tenant) {
       throw new AppError(404, 'NOT_FOUND', '找不到該租戶')
     }
-    const storageUsageBytes = await fileRepository.getTenantStorageUsageBytesSimple(tenantId)
-    const t = tenant as typeof tenant & { _count: { users: number; projects: number } }
-    const { _count, ...rest } = t
+    const [memberCount, projectCount, storageUsageBytes] = await Promise.all([
+      prisma.user.count({ where: { tenantId, ...notDeleted } }),
+      prisma.project.count({ where: { tenantId, ...notDeleted } }),
+      fileRepository.getTenantStorageUsageBytesSimple(tenantId),
+    ])
     res.status(200).json({
       data: {
-        ...rest,
-        memberCount: _count.users,
-        projectCount: _count.projects,
+        ...tenant,
+        memberCount,
+        projectCount,
         storageUsageBytes,
       },
     })
@@ -84,7 +86,7 @@ adminRouter.patch(
       })
       return
     }
-    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } })
+    const tenant = await prisma.tenant.findFirst({ where: { id: tenantId, ...notDeleted } })
     if (!tenant) throw new AppError(404, 'NOT_FOUND', '找不到該租戶')
     if (user.systemRole !== 'platform_admin' && user.tenantId !== tenantId) {
       throw new AppError(403, 'FORBIDDEN', '僅能更新所屬租戶')
@@ -117,8 +119,8 @@ adminRouter.post(
     if (!LOGO_ALLOWED_MIMES.includes(mime)) {
       throw new AppError(400, 'VALIDATION_ERROR', '僅支援 PNG、JPG、SVG、WebP 圖片')
     }
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
+    const tenant = await prisma.tenant.findFirst({
+      where: { id: tenantId, ...notDeleted },
       select: { id: true, logoStorageKey: true },
     })
     if (!tenant) throw new AppError(404, 'NOT_FOUND', '找不到該租戶')
@@ -148,8 +150,8 @@ adminRouter.get(
     if (!tenantId) {
       throw new AppError(404, 'NOT_FOUND', '無所屬租戶')
     }
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
+    const tenant = await prisma.tenant.findFirst({
+      where: { id: tenantId, ...notDeleted },
       select: { logoStorageKey: true },
     })
     if (!tenant?.logoStorageKey) {
@@ -171,7 +173,7 @@ adminRouter.get(
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20))
     const skip = (page - 1) * limit
 
-    const where: { tenantId?: string } = {}
+    const where: { tenantId?: string } & typeof notDeleted = { ...notDeleted }
     if (user.systemRole === 'platform_admin') {
       const tenantId = req.query.tenantId as string | undefined
       if (tenantId) where.tenantId = tenantId
@@ -214,8 +216,8 @@ adminRouter.delete(
     const user = req.user!
     const projectId = typeof req.params.id === 'string' ? req.params.id : req.params.id?.[0]
     if (!projectId) throw new AppError(400, 'BAD_REQUEST', '缺少專案 id')
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, ...notDeleted },
       select: { id: true, tenantId: true },
     })
     if (!project) {
@@ -224,7 +226,10 @@ adminRouter.delete(
     if (user.systemRole !== 'platform_admin' && user.tenantId !== project.tenantId) {
       throw new AppError(403, 'FORBIDDEN', '僅能刪除本租戶專案')
     }
-    await prisma.project.delete({ where: { id: projectId } })
+    await prisma.project.update({
+      where: { id: projectId },
+      data: softDeleteSet(user.id),
+    })
     res.status(200).json({ data: { id: projectId } })
   })
 )
@@ -240,10 +245,12 @@ adminRouter.get(
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20))
     const skip = (page - 1) * limit
 
-    const where: { tenantId?: string; memberType?: string } =
-      user.systemRole === 'platform_admin'
-        ? (tenantId ? { tenantId } : {})
-        : { tenantId: user.tenantId ?? undefined }
+    const where: { tenantId?: string; memberType?: string } & typeof notDeleted = { ...notDeleted }
+    if (user.systemRole === 'platform_admin') {
+      if (tenantId) where.tenantId = tenantId
+    } else {
+      where.tenantId = user.tenantId ?? undefined
+    }
     if (memberType === 'internal' || memberType === 'external') {
       where.memberType = memberType
     }
@@ -325,8 +332,8 @@ adminRouter.get(
     const user = req.user!
     const targetId = typeof req.params.id === 'string' ? req.params.id : req.params.id?.[0]
     if (!targetId) throw new AppError(400, 'BAD_REQUEST', '缺少使用者 id')
-    const target = await prisma.user.findUnique({
-      where: { id: targetId },
+    const target = await prisma.user.findFirst({
+      where: { id: targetId, ...notDeleted },
       select: {
         id: true,
         email: true,
@@ -367,8 +374,8 @@ adminRouter.patch(
       })
       return
     }
-    const target = await prisma.user.findUnique({
-      where: { id: targetId },
+    const target = await prisma.user.findFirst({
+      where: { id: targetId, ...notDeleted },
       select: { id: true, tenantId: true },
     })
     if (!target) {
@@ -383,7 +390,22 @@ adminRouter.patch(
     if (parsed.data.memberType !== undefined) updateData.memberType = parsed.data.memberType
     if (parsed.data.status !== undefined) updateData.status = parsed.data.status
     if (Object.keys(updateData).length === 0) {
-      res.status(200).json({ data: await prisma.user.findUnique({ where: { id: targetId }, select: { id: true, email: true, name: true, systemRole: true, memberType: true, status: true, tenantId: true, createdAt: true, updatedAt: true } }) })
+      res.status(200).json({
+        data: await prisma.user.findFirst({
+          where: { id: targetId, ...notDeleted },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            systemRole: true,
+            memberType: true,
+            status: true,
+            tenantId: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        }),
+      })
       return
     }
     const updated = await prisma.user.update({
@@ -415,8 +437,8 @@ adminRouter.delete(
     if (targetId === user.id) {
       throw new AppError(400, 'BAD_REQUEST', '無法刪除自己的帳號')
     }
-    const target = await prisma.user.findUnique({
-      where: { id: targetId },
+    const target = await prisma.user.findFirst({
+      where: { id: targetId, ...notDeleted },
       select: { id: true, tenantId: true },
     })
     if (!target) {
@@ -425,7 +447,10 @@ adminRouter.delete(
     if (user.systemRole !== 'platform_admin' && user.tenantId !== target.tenantId) {
       throw new AppError(403, 'FORBIDDEN', '僅能刪除本租戶成員')
     }
-    await prisma.user.delete({ where: { id: targetId } })
+    await prisma.user.update({
+      where: { id: targetId },
+      data: softDeleteSet(user.id),
+    })
     res.status(200).json({ data: { id: targetId } })
   })
 )

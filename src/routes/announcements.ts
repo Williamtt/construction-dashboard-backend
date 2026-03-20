@@ -3,6 +3,7 @@
  */
 import { Router, type Request, type Response } from 'express'
 import { prisma } from '../lib/db.js'
+import { notDeleted } from '../shared/soft-delete.js'
 import { authMiddleware } from '../middleware/auth.js'
 
 export const announcementsRouter = Router({ mergeParams: true })
@@ -17,6 +18,7 @@ announcementsRouter.get('/active', async (req: Request, res: Response) => {
     const now = new Date()
     const baseWhere = {
       where: {
+        ...notDeleted,
         publishedAt: { lte: now },
         OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
       },
@@ -71,7 +73,7 @@ announcementsRouter.post('/:id/read', async (req: Request, res: Response) => {
       res.status(400).json({ error: { code: 'BAD_REQUEST', message: '缺少公告 id' } })
       return
     }
-    const announcement = await prisma.platformAnnouncement.findUnique({ where: { id } })
+    const announcement = await prisma.platformAnnouncement.findFirst({ where: { id, ...notDeleted } })
     if (!announcement) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: '找不到該公告' } })
       return

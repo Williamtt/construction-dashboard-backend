@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/db.js'
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 export type ScheduleAdjustmentItem = {
   id: string
@@ -27,7 +28,7 @@ const select = {
 export const scheduleAdjustmentRepository = {
   async findManyByProjectId(projectId: string): Promise<ScheduleAdjustmentItem[]> {
     const rows = await prisma.projectScheduleAdjustment.findMany({
-      where: { projectId },
+      where: { projectId, ...notDeleted },
       orderBy: { applyDate: 'desc' },
       select,
     })
@@ -74,8 +75,8 @@ export const scheduleAdjustmentRepository = {
       status: string
     }>
   ): Promise<ScheduleAdjustmentItem> {
-    const row = await prisma.projectScheduleAdjustment.update({
-      where: { id },
+    const n = await prisma.projectScheduleAdjustment.updateMany({
+      where: { id, ...notDeleted },
       data: {
         ...(data.applyDate !== undefined && { applyDate: data.applyDate }),
         ...(data.type !== undefined && { type: data.type }),
@@ -83,12 +84,20 @@ export const scheduleAdjustmentRepository = {
         ...(data.approvedDays !== undefined && { approvedDays: data.approvedDays }),
         ...(data.status !== undefined && { status: data.status }),
       },
+    })
+    if (n.count === 0) throw new Error('SCHEDULE_ADJUSTMENT_NOT_FOUND_OR_DELETED')
+    const row = await prisma.projectScheduleAdjustment.findFirst({
+      where: { id, ...notDeleted },
       select,
     })
+    if (!row) throw new Error('SCHEDULE_ADJUSTMENT_NOT_FOUND_OR_DELETED')
     return row as ScheduleAdjustmentItem
   },
 
-  async delete(id: string): Promise<void> {
-    await prisma.projectScheduleAdjustment.delete({ where: { id } })
+  async delete(id: string, deletedById: string): Promise<void> {
+    await prisma.projectScheduleAdjustment.updateMany({
+      where: { id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
   },
 }

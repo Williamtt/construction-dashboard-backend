@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/db.js'
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 export type ProjectMemberItem = {
   id: string
@@ -21,7 +22,7 @@ export type ProjectMemberItem = {
 export const projectMemberRepository = {
   async findManyByProjectId(projectId: string): Promise<ProjectMemberItem[]> {
     const rows = await prisma.projectMember.findMany({
-      where: { projectId },
+      where: { projectId, ...notDeleted, user: notDeleted },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,
@@ -52,13 +53,14 @@ export const projectMemberRepository = {
     limit: number
   ): Promise<{ id: string; email: string; name: string | null }[]> {
     const existing = await prisma.projectMember.findMany({
-      where: { projectId },
+      where: { projectId, ...notDeleted },
       select: { userId: true },
     })
     const excludeIds = existing.map((r: { userId: string }) => r.userId)
     const users = await prisma.user.findMany({
       where: {
         tenantId,
+        ...notDeleted,
         id: { notIn: excludeIds },
         status: 'active',
       },
@@ -70,6 +72,31 @@ export const projectMemberRepository = {
   },
 
   async create(projectId: string, userId: string, role: 'project_admin' | 'member' | 'viewer' = 'member') {
+    const prev = await prisma.projectMember.findFirst({
+      where: { projectId, userId },
+    })
+    if (prev) {
+      if (prev.deletedAt != null) {
+        return prisma.projectMember.update({
+          where: { id: prev.id },
+          data: {
+            deletedAt: null,
+            deletedById: null,
+            role,
+            status: 'active',
+          },
+          select: {
+            id: true,
+            projectId: true,
+            userId: true,
+            role: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        })
+      }
+      throw new Error('PROJECT_MEMBER_ALREADY_ACTIVE')
+    }
     return prisma.projectMember.create({
       data: { projectId, userId, role },
       select: {
@@ -83,15 +110,16 @@ export const projectMemberRepository = {
     })
   },
 
-  async deleteByProjectAndUser(projectId: string, userId: string) {
-    await prisma.projectMember.deleteMany({
-      where: { projectId, userId },
+  async deleteByProjectAndUser(projectId: string, userId: string, deletedById: string) {
+    await prisma.projectMember.updateMany({
+      where: { projectId, userId, ...notDeleted },
+      data: softDeleteSet(deletedById),
     })
   },
 
   async exists(projectId: string, userId: string): Promise<boolean> {
-    const one = await prisma.projectMember.findUnique({
-      where: { projectId_userId: { projectId, userId } },
+    const one = await prisma.projectMember.findFirst({
+      where: { projectId, userId, ...notDeleted },
     })
     return !!one
   },
@@ -102,7 +130,7 @@ export const projectMemberRepository = {
     status: 'active' | 'suspended'
   ): Promise<ProjectMemberItem | null> {
     const updated = await prisma.projectMember.updateMany({
-      where: { projectId, userId },
+      where: { projectId, userId, ...notDeleted },
       data: { status },
     })
     if (updated.count === 0) return null

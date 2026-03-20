@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/db.js'
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 export type AlbumRecord = {
   id: string
@@ -17,8 +18,8 @@ export const albumRepository = {
   },
 
   async findById(id: string): Promise<AlbumRecord | null> {
-    const row = await prisma.photoAlbum.findUnique({
-      where: { id },
+    const row = await prisma.photoAlbum.findFirst({
+      where: { id, ...notDeleted },
       select: { id: true, projectId: true, name: true, createdAt: true },
     })
     return row as AlbumRecord | null
@@ -33,8 +34,12 @@ export const albumRepository = {
     return rows as AlbumRecord[]
   },
 
-  async delete(id: string): Promise<void> {
-    await prisma.photoAlbum.delete({ where: { id } })
+  async delete(id: string, deletedById: string): Promise<void> {
+    await prisma.albumPhoto.deleteMany({ where: { albumId: id } })
+    await prisma.photoAlbum.updateMany({
+      where: { id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
   },
 
   async addPhoto(albumId: string, attachmentId: string): Promise<void> {

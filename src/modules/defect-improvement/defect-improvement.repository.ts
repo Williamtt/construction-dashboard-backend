@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/db.js'
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 const defectSelect = {
   id: true,
@@ -31,7 +32,7 @@ export const defectImprovementRepository = {
     projectId: string,
     args: { status?: string; skip?: number; take?: number }
   ) {
-    const where = { projectId, ...(args.status ? { status: args.status } : {}) }
+    const where = { projectId, ...notDeleted, ...(args.status ? { status: args.status } : {}) }
     return prisma.defectImprovement.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
@@ -42,20 +43,20 @@ export const defectImprovementRepository = {
   },
 
   async countByProject(projectId: string, status?: string) {
-    const where = { projectId, ...(status ? { status } : {}) }
+    const where = { projectId, ...notDeleted, ...(status ? { status } : {}) }
     return prisma.defectImprovement.count({ where })
   },
 
   async findById(id: string) {
-    return prisma.defectImprovement.findUnique({
-      where: { id },
+    return prisma.defectImprovement.findFirst({
+      where: { id, ...notDeleted },
       select: defectSelect,
     }) as Promise<DefectListItem | null>
   },
 
   async findByIdWithProject(id: string) {
-    return prisma.defectImprovement.findUnique({
-      where: { id },
+    return prisma.defectImprovement.findFirst({
+      where: { id, ...notDeleted },
       select: { ...defectSelect, projectId: true },
     })
   },
@@ -94,8 +95,8 @@ export const defectImprovementRepository = {
       status: string
     }>
   ) {
-    return prisma.defectImprovement.update({
-      where: { id },
+    const n = await prisma.defectImprovement.updateMany({
+      where: { id, ...notDeleted },
       data: {
         ...(data.description !== undefined && { description: data.description }),
         ...(data.discoveredBy !== undefined && { discoveredBy: data.discoveredBy }),
@@ -104,12 +105,27 @@ export const defectImprovementRepository = {
         ...(data.location !== undefined && { location: data.location }),
         ...(data.status !== undefined && { status: data.status }),
       },
+    })
+    if (n.count === 0) {
+      throw new Error('DEFECT_NOT_FOUND_OR_DELETED')
+    }
+    const row = await prisma.defectImprovement.findFirst({
+      where: { id, ...notDeleted },
       select: defectSelect,
-    }) as Promise<DefectListItem>
+    })
+    if (!row) throw new Error('DEFECT_NOT_FOUND_OR_DELETED')
+    return row as DefectListItem
   },
 
-  async delete(id: string) {
-    await prisma.defectImprovement.delete({ where: { id } })
+  async delete(id: string, deletedById: string) {
+    await prisma.defectExecutionRecord.updateMany({
+      where: { defectId: id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
+    await prisma.defectImprovement.updateMany({
+      where: { id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
   },
 }
 
@@ -133,15 +149,15 @@ export type DefectExecutionRecordRow = {
 
 export const defectExecutionRecordRepository = {
   async findById(recordId: string) {
-    return prisma.defectExecutionRecord.findUnique({
-      where: { id: recordId },
+    return prisma.defectExecutionRecord.findFirst({
+      where: { id: recordId, ...notDeleted },
       select: recordSelect,
     }) as Promise<DefectExecutionRecordRow | null>
   },
 
   async findManyByDefectId(defectId: string) {
     return prisma.defectExecutionRecord.findMany({
-      where: { defectId },
+      where: { defectId, ...notDeleted },
       orderBy: { createdAt: 'desc' },
       select: recordSelect,
     }) as Promise<DefectExecutionRecordRow[]>

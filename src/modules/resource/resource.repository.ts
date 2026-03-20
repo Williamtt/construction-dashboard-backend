@@ -1,21 +1,5 @@
 import { prisma } from '../../lib/db.js'
-
-/** Prisma delegate for ProjectResource; throw clear error if client was not regenerated. */
-function getProjectResourceDelegate() {
-  const delegate = (prisma as { projectResource?: unknown }).projectResource
-  if (!delegate || typeof (delegate as { findMany?: unknown }).findMany !== 'function') {
-    throw new Error(
-      'Prisma Client 尚未包含 ProjectResource 模型。請在後端目錄執行：npx prisma generate，然後重新啟動伺服器。'
-    )
-  }
-  return delegate as {
-    findMany: (args: unknown) => Promise<ProjectResourceRecord[]>
-    findUnique: (args: unknown) => Promise<ProjectResourceRecord | null>
-    create: (args: unknown) => Promise<ProjectResourceRecord>
-    update: (args: unknown) => Promise<ProjectResourceRecord>
-    delete: (args: unknown) => Promise<void>
-  }
-}
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 export type ProjectResourceRecord = {
   id: string
@@ -52,9 +36,8 @@ export const resourceRepository = {
     projectId: string,
     type: string
   ): Promise<ProjectResourceRecord[]> {
-    const projectResource = getProjectResourceDelegate()
-    const rows = await projectResource.findMany({
-      where: { projectId, type },
+    const rows = await prisma.projectResource.findMany({
+      where: { projectId, type, ...notDeleted },
       orderBy: { createdAt: 'asc' },
       select,
     })
@@ -62,9 +45,8 @@ export const resourceRepository = {
   },
 
   async findById(id: string): Promise<ProjectResourceRecord | null> {
-    const projectResource = getProjectResourceDelegate()
-    const row = await projectResource.findUnique({
-      where: { id },
+    const row = await prisma.projectResource.findFirst({
+      where: { id, ...notDeleted },
       select,
     })
     return row as ProjectResourceRecord | null
@@ -81,8 +63,7 @@ export const resourceRepository = {
     vendor?: string | null
     description?: string | null
   }): Promise<ProjectResourceRecord> {
-    const projectResource = getProjectResourceDelegate()
-    const row = await projectResource.create({
+    const row = await prisma.projectResource.create({
       data: {
         projectId: data.projectId,
         type: data.type,
@@ -111,9 +92,8 @@ export const resourceRepository = {
       description: string | null
     }>
   ): Promise<ProjectResourceRecord> {
-    const projectResource = getProjectResourceDelegate()
-    const row = await projectResource.update({
-      where: { id },
+    const n = await prisma.projectResource.updateMany({
+      where: { id, ...notDeleted },
       data: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.unit !== undefined && { unit: data.unit }),
@@ -123,13 +103,20 @@ export const resourceRepository = {
         ...(data.vendor !== undefined && { vendor: data.vendor }),
         ...(data.description !== undefined && { description: data.description }),
       },
+    })
+    if (n.count === 0) throw new Error('RESOURCE_NOT_FOUND_OR_DELETED')
+    const row = await prisma.projectResource.findFirst({
+      where: { id, ...notDeleted },
       select,
     })
+    if (!row) throw new Error('RESOURCE_NOT_FOUND_OR_DELETED')
     return row as ProjectResourceRecord
   },
 
-  async delete(id: string): Promise<void> {
-    const projectResource = getProjectResourceDelegate()
-    await projectResource.delete({ where: { id } })
+  async delete(id: string, deletedById: string): Promise<void> {
+    await prisma.projectResource.updateMany({
+      where: { id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
   },
 }

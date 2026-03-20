@@ -1,4 +1,5 @@
 import { AppError } from '../../shared/errors.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import { prisma } from '../../lib/db.js'
 import { photoFavoriteRepository } from './photo-favorite.repository.js'
 import { fileRepository, type AttachmentRecord } from '../file/file.repository.js'
@@ -15,8 +16,8 @@ async function ensureUserCanAccessProject(
   isPlatformAdmin: boolean
 ): Promise<void> {
   if (isPlatformAdmin) return
-  const member = await prisma.projectMember.findUnique({
-    where: { projectId_userId: { projectId, userId } },
+  const member = await prisma.projectMember.findFirst({
+    where: { projectId, userId, ...notDeleted },
     select: { status: true },
   })
   if (!member || member.status !== 'active') {

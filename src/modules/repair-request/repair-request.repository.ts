@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/db.js'
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 const repairSelect = {
   id: true,
@@ -39,7 +40,7 @@ export const repairRequestRepository = {
     projectId: string,
     args: { status?: string; skip?: number; take?: number }
   ) {
-    const where = { projectId, ...(args.status ? { status: args.status } : {}) }
+    const where = { projectId, ...notDeleted, ...(args.status ? { status: args.status } : {}) }
     return prisma.repairRequest.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
@@ -50,13 +51,13 @@ export const repairRequestRepository = {
   },
 
   async countByProject(projectId: string, status?: string) {
-    const where = { projectId, ...(status ? { status } : {}) }
+    const where = { projectId, ...notDeleted, ...(status ? { status } : {}) }
     return prisma.repairRequest.count({ where })
   },
 
   async findById(id: string) {
-    return prisma.repairRequest.findUnique({
-      where: { id },
+    return prisma.repairRequest.findFirst({
+      where: { id, ...notDeleted },
       select: repairSelect,
     }) as Promise<RepairListItem | null>
   },
@@ -107,8 +108,8 @@ export const repairRequestRepository = {
       status: string
     }>
   ) {
-    return prisma.repairRequest.update({
-      where: { id },
+    const n = await prisma.repairRequest.updateMany({
+      where: { id, ...notDeleted },
       data: {
         ...(data.customerName !== undefined && { customerName: data.customerName }),
         ...(data.contactPhone !== undefined && { contactPhone: data.contactPhone }),
@@ -121,12 +122,25 @@ export const repairRequestRepository = {
         ...(data.repairDate !== undefined && { repairDate: data.repairDate }),
         ...(data.status !== undefined && { status: data.status }),
       },
+    })
+    if (n.count === 0) throw new Error('REPAIR_NOT_FOUND_OR_DELETED')
+    const row = await prisma.repairRequest.findFirst({
+      where: { id, ...notDeleted },
       select: repairSelect,
-    }) as Promise<RepairListItem>
+    })
+    if (!row) throw new Error('REPAIR_NOT_FOUND_OR_DELETED')
+    return row as RepairListItem
   },
 
-  async delete(id: string) {
-    await prisma.repairRequest.delete({ where: { id } })
+  async delete(id: string, deletedById: string) {
+    await prisma.repairExecutionRecord.updateMany({
+      where: { repairId: id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
+    await prisma.repairRequest.updateMany({
+      where: { id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
   },
 }
 
@@ -150,15 +164,15 @@ export type RepairExecutionRecordRow = {
 
 export const repairExecutionRecordRepository = {
   async findById(recordId: string) {
-    return prisma.repairExecutionRecord.findUnique({
-      where: { id: recordId },
+    return prisma.repairExecutionRecord.findFirst({
+      where: { id: recordId, ...notDeleted },
       select: repairRecordSelect,
     }) as Promise<RepairExecutionRecordRow | null>
   },
 
   async findManyByRepairId(repairId: string) {
     return prisma.repairExecutionRecord.findMany({
-      where: { repairId },
+      where: { repairId, ...notDeleted },
       orderBy: { createdAt: 'desc' },
       select: repairRecordSelect,
     }) as Promise<RepairExecutionRecordRow[]>

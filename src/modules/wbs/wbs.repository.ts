@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/db.js'
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 export type WbsNodeRecord = {
   id: string
@@ -37,23 +38,46 @@ function decimalToNumber(v: unknown): number {
   return Number(v)
 }
 
+function mapRow(row: {
+  variableCost: unknown
+} & Omit<WbsNodeRecord, 'variableCost'>): WbsNodeRecord {
+  return {
+    ...row,
+    variableCost: row.variableCost != null ? decimalToNumber(row.variableCost) : null,
+  }
+}
+
+function descendantIds(flat: WbsNodeRecord[], nodeId: string): string[] {
+  const ids: string[] = []
+  function collect(pid: string) {
+    for (const n of flat) {
+      if (n.parentId === pid) {
+        ids.push(n.id)
+        collect(n.id)
+      }
+    }
+  }
+  collect(nodeId)
+  return ids
+}
+
 export const wbsRepository = {
   async findManyByProjectId(projectId: string): Promise<WbsNodeRecord[]> {
     const rows = await prisma.wbsNode.findMany({
-      where: { projectId },
+      where: { projectId, ...notDeleted },
       orderBy: [{ parentId: 'asc' }, { sortOrder: 'asc' }],
       select,
     })
-    return rows.map((r) => ({ ...r, variableCost: r.variableCost != null ? decimalToNumber(r.variableCost) : null })) as WbsNodeRecord[]
+    return rows.map((r) => mapRow(r))
   },
 
   async findById(id: string): Promise<WbsNodeRecord | null> {
-    const row = await prisma.wbsNode.findUnique({
-      where: { id },
+    const row = await prisma.wbsNode.findFirst({
+      where: { id, ...notDeleted },
       select,
     })
     if (!row) return null
-    return { ...row, variableCost: row.variableCost != null ? decimalToNumber(row.variableCost) : null } as WbsNodeRecord
+    return mapRow(row)
   },
 
   async create(data: {
@@ -79,7 +103,7 @@ export const wbsRepository = {
       },
       select,
     })
-    return { ...row, variableCost: row.variableCost != null ? decimalToNumber(row.variableCost) : null } as WbsNodeRecord
+    return mapRow(row)
   },
 
   async update(
@@ -94,8 +118,8 @@ export const wbsRepository = {
       variableCost: number | null
     }>
   ): Promise<WbsNodeRecord> {
-    const row = await prisma.wbsNode.update({
-      where: { id },
+    const n = await prisma.wbsNode.updateMany({
+      where: { id, ...notDeleted },
       data: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.code !== undefined && { code: data.code }),
@@ -105,33 +129,47 @@ export const wbsRepository = {
         ...(data.durationDays !== undefined && { durationDays: data.durationDays }),
         ...(data.variableCost !== undefined && { variableCost: data.variableCost }),
       },
-      select,
     })
-    return { ...row, variableCost: row.variableCost != null ? decimalToNumber(row.variableCost) : null } as WbsNodeRecord
+    if (n.count === 0) throw new Error('WBS_NODE_NOT_FOUND_OR_DELETED')
+    const row = await prisma.wbsNode.findFirst({ where: { id, ...notDeleted }, select })
+    if (!row) throw new Error('WBS_NODE_NOT_FOUND_OR_DELETED')
+    return mapRow(row)
   },
 
-  async delete(id: string): Promise<void> {
-    await prisma.wbsNode.delete({ where: { id } })
+  /** 子樹軟刪除（含根）；先移除節點資源連結 */
+  async softDeleteSubtree(projectId: string, rootId: string, deletedById: string): Promise<void> {
+    const flat = await prisma.wbsNode.findMany({
+      where: { projectId, ...notDeleted },
+      select: { id: true, parentId: true },
+    })
+    const asRecords = flat as WbsNodeRecord[]
+    const desc = descendantIds(asRecords, rootId)
+    const ids = [rootId, ...desc]
+    await prisma.wbsNodeResource.deleteMany({ where: { wbsNodeId: { in: ids } } })
+    await prisma.wbsNode.updateMany({
+      where: { id: { in: ids }, projectId, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
   },
 
   async countChildren(parentId: string | null, projectId: string): Promise<number> {
     return prisma.wbsNode.count({
-      where: { projectId, parentId },
+      where: { projectId, parentId, ...notDeleted },
     })
   },
 
-  /** 資源回傳型別：含 type（人機料）、unit、unitCost、quantity 供前端分組與變動成本顯示 */
   async findManyByProjectIdWithResources(projectId: string): Promise<
     (WbsNodeRecord & {
       resources: { id: string; name: string; type: string; unit: string; unitCost: number; quantity: number }[]
     })[]
   > {
     const rows = await prisma.wbsNode.findMany({
-      where: { projectId },
+      where: { projectId, ...notDeleted },
       orderBy: [{ parentId: 'asc' }, { sortOrder: 'asc' }],
       select: {
         ...select,
         resourceLinks: {
+          where: { resource: notDeleted },
           select: {
             quantity: true,
             resource: {
@@ -144,8 +182,7 @@ export const wbsRepository = {
     return rows.map((r) => {
       const { resourceLinks, variableCost: vc, ...node } = r
       return {
-        ...node,
-        variableCost: vc != null ? decimalToNumber(vc) : null,
+        ...mapRow({ ...node, variableCost: vc }),
         resources: resourceLinks.map((l) => ({
           id: l.resource.id,
           name: l.resource.name,
@@ -158,7 +195,6 @@ export const wbsRepository = {
     })
   },
 
-  /** 設定節點資源與用量；若未傳 quantity 則預設 1 */
   async setNodeResourceAssignments(
     wbsNodeId: string,
     assignments: { projectResourceId: string; quantity?: number }[]
@@ -176,7 +212,6 @@ export const wbsRepository = {
     }
   },
 
-  /** 依資源單價×用量計算變動成本並寫回節點 */
   async recomputeAndUpdateVariableCost(wbsNodeId: string): Promise<void> {
     const links = await prisma.wbsNodeResource.findMany({
       where: { wbsNodeId },
@@ -188,8 +223,8 @@ export const wbsRepository = {
       const cost = l.resource.unitCost
       total += cost * qty
     }
-    await prisma.wbsNode.update({
-      where: { id: wbsNodeId },
+    await prisma.wbsNode.updateMany({
+      where: { id: wbsNodeId, ...notDeleted },
       data: { variableCost: total },
     })
   },

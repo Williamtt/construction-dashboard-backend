@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/db.js'
 import { AppError } from '../../shared/errors.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import { resourceRepository, type ProjectResourceRecord } from './resource.repository.js'
 import type {
   CreateProjectResourceBody,
@@ -7,13 +8,14 @@ import type {
 } from '../../schemas/resource.js'
 
 type AuthUser = {
+  id: string
   systemRole: 'platform_admin' | 'tenant_admin' | 'project_user'
   tenantId: string | null
 }
 
 async function ensureProjectAccess(projectId: string, user: AuthUser): Promise<void> {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, ...notDeleted },
     select: { tenantId: true },
   })
   if (!project) throw new AppError(404, 'NOT_FOUND', '找不到該專案')
@@ -94,6 +96,6 @@ export const resourceService = {
     if (!existing || existing.projectId !== projectId) {
       throw new AppError(404, 'NOT_FOUND', '找不到該資源')
     }
-    await resourceRepository.delete(id)
+    await resourceRepository.delete(id, user.id)
   },
 }

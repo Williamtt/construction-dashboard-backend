@@ -1,17 +1,19 @@
 import { prisma } from '../../lib/db.js'
 import { AppError } from '../../shared/errors.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import { issueRiskRepository, type IssueRiskWithRelations } from './issue-risk.repository.js'
 import { wbsRepository } from '../wbs/wbs.repository.js'
 import type { CreateIssueRiskBody, UpdateIssueRiskBody } from '../../schemas/issue-risk.js'
 
 type AuthUser = {
+  id: string
   systemRole: 'platform_admin' | 'tenant_admin' | 'project_user'
   tenantId: string | null
 }
 
 async function ensureProjectAccess(projectId: string, user: AuthUser): Promise<void> {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, ...notDeleted },
     select: { tenantId: true },
   })
   if (!project) throw new AppError(404, 'NOT_FOUND', '找不到該專案')
@@ -50,7 +52,7 @@ async function validateWbsNodeIds(
   }
   if (wbsNodeIds.length === 0) return
   const nodes = await prisma.wbsNode.findMany({
-    where: { id: { in: wbsNodeIds }, projectId },
+    where: { id: { in: wbsNodeIds }, projectId, ...notDeleted },
     select: { id: true },
   })
   if (nodes.length !== wbsNodeIds.length) {
@@ -70,10 +72,13 @@ export const issueRiskService = {
     await validateWbsNodeIds(projectId, body.wbsNodeIds ?? [], leafIds)
     const assigneeId = body.assigneeId ?? null
     if (assigneeId) {
-      const member = await prisma.projectMember.findUnique({
-        where: { projectId_userId: { projectId, userId: assigneeId } },
+      const member = await prisma.projectMember.findFirst({
+        where: { projectId, userId: assigneeId, ...notDeleted },
+        select: { status: true },
       })
-      if (!member) throw new AppError(400, 'VALIDATION_ERROR', '負責人須為專案成員')
+      if (!member || member.status !== 'active') {
+        throw new AppError(400, 'VALIDATION_ERROR', '負責人須為專案成員')
+      }
     }
     const created = await issueRiskRepository.create({
       projectId,
@@ -104,10 +109,13 @@ export const issueRiskService = {
       await validateWbsNodeIds(projectId, wbsNodeIds, leafIds)
     }
     if (body.assigneeId !== undefined && body.assigneeId) {
-      const member = await prisma.projectMember.findUnique({
-        where: { projectId_userId: { projectId, userId: body.assigneeId } },
+      const member = await prisma.projectMember.findFirst({
+        where: { projectId, userId: body.assigneeId, ...notDeleted },
+        select: { status: true },
       })
-      if (!member) throw new AppError(400, 'VALIDATION_ERROR', '負責人須為專案成員')
+      if (!member || member.status !== 'active') {
+        throw new AppError(400, 'VALIDATION_ERROR', '負責人須為專案成員')
+      }
     }
     await issueRiskRepository.update(id, {
       description: body.description?.trim(),
@@ -126,7 +134,7 @@ export const issueRiskService = {
     if (!existing || existing.projectId !== projectId) {
       throw new AppError(404, 'NOT_FOUND', '找不到該議題風險')
     }
-    await issueRiskRepository.delete(id)
+    await issueRiskRepository.delete(id, user.id)
   },
 
   async getById(projectId: string, id: string, user: AuthUser) {

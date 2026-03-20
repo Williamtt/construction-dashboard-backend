@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/db.js'
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 const attachmentSelect = {
   id: true,
@@ -61,8 +62,8 @@ export const fileRepository = {
   },
 
   async findById(id: string) {
-    return prisma.attachment.findUnique({
-      where: { id },
+    return prisma.attachment.findFirst({
+      where: { id, ...notDeleted },
       select: attachmentSelect,
     }) as Promise<AttachmentRecord | null>
   },
@@ -71,7 +72,7 @@ export const fileRepository = {
   async findManyByIds(ids: string[]) {
     if (ids.length === 0) return { items: [], total: 0 }
     const items = await prisma.attachment.findMany({
-      where: { id: { in: ids } },
+      where: { id: { in: ids }, ...notDeleted },
       select: {
         id: true,
         projectId: true,
@@ -98,7 +99,7 @@ export const fileRepository = {
   },
 
   async findByProjectId(projectId: string, args: { skip: number; take: number; category?: string }) {
-    const where = { projectId, ...(args.category ? { category: args.category } : {}) }
+    const where = { projectId, ...notDeleted, ...(args.category ? { category: args.category } : {}) }
     const [items, total] = await Promise.all([
       prisma.attachment.findMany({
         where,
@@ -130,12 +131,12 @@ export const fileRepository = {
   },
 
   async countByStorageKey(storageKey: string) {
-    return prisma.attachment.count({ where: { storageKey } })
+    return prisma.attachment.count({ where: { storageKey, ...notDeleted } })
   },
 
   async findByProjectAndHash(projectId: string, fileHash: string) {
     return prisma.attachment.findFirst({
-      where: { projectId, fileHash },
+      where: { projectId, fileHash, ...notDeleted },
       select: attachmentSelect,
     }) as Promise<AttachmentRecord | null>
   },
@@ -156,16 +157,23 @@ export const fileRepository = {
   /** 若無去重，簡化版：直接 SUM(fileSize) */
   async getTenantStorageUsageBytesSimple(tenantId: string): Promise<number> {
     const r = await prisma.attachment.aggregate({
-      where: { tenantId },
+      where: { tenantId, ...notDeleted },
       _sum: { fileSize: true },
     })
     return r._sum.fileSize ?? 0
   },
 
-  async delete(id: string) {
-    return prisma.attachment.delete({
-      where: { id },
+  /** 軟刪除；回傳刪前資料供決定是否刪實體檔（storageKey 最後一個 active 參照時） */
+  async softDelete(id: string, deletedById: string) {
+    const prev = await prisma.attachment.findFirst({
+      where: { id, ...notDeleted },
       select: { storageKey: true, fileSize: true, tenantId: true },
     })
+    if (!prev) return null
+    await prisma.attachment.updateMany({
+      where: { id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
+    return prev
   },
 }

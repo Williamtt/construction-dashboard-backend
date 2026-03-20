@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { AppError } from '../../shared/errors.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import { formTemplateRepository } from './form-template.repository.js'
 import { storage } from '../../lib/storage.js'
 import { projectRepository } from '../project/project.repository.js'
@@ -21,8 +22,8 @@ async function ensureCanAccessTenant(tenantId: string, user: AuthUser): Promise<
 
 async function ensureCanAccessProject(projectId: string, userId: string, user: AuthUser): Promise<void> {
   if (user.systemRole === 'platform_admin') return
-  const member = await prisma.projectMember.findUnique({
-    where: { projectId_userId: { projectId, userId } },
+  const member = await prisma.projectMember.findFirst({
+    where: { projectId, userId, ...notDeleted },
     select: { status: true },
   })
   if (!member || member.status !== 'active') {
@@ -59,7 +60,7 @@ export const formTemplateService = {
   ) {
     await ensureCanAccessTenant(tenantId, user)
     const fileSize = buffer.length
-    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } })
+    const tenant = await prisma.tenant.findFirst({ where: { id: tenantId, ...notDeleted } })
     const limitBytes = tenant?.fileSizeLimitMb != null ? tenant.fileSizeLimitMb * 1024 * 1024 : UPLOAD_MAX_FILE_SIZE_DEFAULT_BYTES
     if (fileSize > limitBytes) {
       throw new AppError(403, 'FILE_SIZE_EXCEEDED', `單一檔案不得超過 ${tenant?.fileSizeLimitMb ?? 50} MB`)
@@ -97,7 +98,7 @@ export const formTemplateService = {
     if (!project) throw new AppError(404, 'NOT_FOUND', '找不到該專案')
     const tenantId = project.tenantId
     const fileSize = buffer.length
-    const tenant = tenantId ? await prisma.tenant.findUnique({ where: { id: tenantId } }) : null
+    const tenant = tenantId ? await prisma.tenant.findFirst({ where: { id: tenantId, ...notDeleted } }) : null
     const limitBytes = tenant?.fileSizeLimitMb != null ? tenant.fileSizeLimitMb * 1024 * 1024 : UPLOAD_MAX_FILE_SIZE_DEFAULT_BYTES
     if (fileSize > limitBytes) {
       throw new AppError(403, 'FILE_SIZE_EXCEEDED', `單一檔案不得超過 ${tenant?.fileSizeLimitMb ?? 50} MB`)
@@ -165,7 +166,7 @@ export const formTemplateService = {
     } else if (row.tenantId) {
       await ensureCanAccessTenant(row.tenantId, user)
     }
-    const deleted = await formTemplateRepository.delete(id)
+    const deleted = await formTemplateRepository.delete(id, userId)
     if (deleted) await storage.delete(deleted.storageKey)
   },
 }

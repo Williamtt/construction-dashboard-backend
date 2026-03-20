@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { AppError } from '../../shared/errors.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import { projectRepository } from '../project/project.repository.js'
 import { fileRepository, type AttachmentRecord } from './file.repository.js'
 import { storage } from '../../lib/storage.js'
@@ -16,8 +17,8 @@ type AuthUser = {
 
 async function ensureUserCanAccessProject(projectId: string, userId: string, isPlatformAdmin: boolean): Promise<void> {
   if (isPlatformAdmin) return
-  const member = await prisma.projectMember.findUnique({
-    where: { projectId_userId: { projectId, userId } },
+  const member = await prisma.projectMember.findFirst({
+    where: { projectId, userId, ...notDeleted },
     select: { status: true },
   })
   if (!member || member.status !== 'active') {
@@ -57,7 +58,7 @@ export const fileService = {
     const fileSize = buffer.length
 
     // 單檔上限
-    const tenant = tenantId ? await prisma.tenant.findUnique({ where: { id: tenantId } }) : null
+    const tenant = tenantId ? await prisma.tenant.findFirst({ where: { id: tenantId, ...notDeleted } }) : null
     const fileLimitBytes = tenant?.fileSizeLimitMb != null
       ? tenant.fileSizeLimitMb * 1024 * 1024
       : UPLOAD_MAX_FILE_SIZE_DEFAULT_BYTES
@@ -171,7 +172,10 @@ export const fileService = {
     await ensureUserCanAccessProject(att.projectId, userId, user.systemRole === 'platform_admin')
 
     const refCount = await fileRepository.countByStorageKey(att.storageKey)
-    await fileRepository.delete(id)
+    const removed = await fileRepository.softDelete(id, userId)
+    if (!removed) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該檔案')
+    }
     if (refCount <= 1) {
       await storage.delete(att.storageKey)
     }

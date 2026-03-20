@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/db.js'
 import { AppError } from '../../shared/errors.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import { projectRepository, type ProjectListItem } from './project.repository.js'
 import type { CreateProjectBody, UpdateProjectBody } from '../../schemas/project.js'
 
@@ -25,7 +26,7 @@ function addDays(date: Date, days: number): Date {
 /** 取得專案已核定工期調整天數總和（僅 status=approved） */
 async function getSumApprovedDays(projectId: string): Promise<number> {
   const r = await prisma.projectScheduleAdjustment.aggregate({
-    where: { projectId, status: 'approved' },
+    where: { projectId, status: 'approved', ...notDeleted },
     _sum: { approvedDays: true },
   })
   return r._sum?.approvedDays ?? 0
@@ -110,8 +111,8 @@ export const projectService = {
       return applyComputedDates(project, sumApprovedDays)
     }
     // project_user：須為專案成員且狀態為 active
-    const member = await prisma.projectMember.findUnique({
-      where: { projectId_userId: { projectId: id, userId: user.id } },
+    const member = await prisma.projectMember.findFirst({
+      where: { projectId: id, userId: user.id, ...notDeleted },
       select: { status: true },
     })
     if (!member || member.status !== 'active') {

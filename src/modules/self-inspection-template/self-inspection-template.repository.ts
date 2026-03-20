@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/db.js'
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 const templateSelect = {
   id: true,
@@ -73,6 +74,7 @@ export const selfInspectionTemplateRepository = {
   async findManyByTenant(tenantId: string, args: { status?: string }) {
     const where = {
       tenantId,
+      ...notDeleted,
       ...(args.status ? { status: args.status } : {}),
     }
     return prisma.selfInspectionTemplate.findMany({
@@ -80,14 +82,14 @@ export const selfInspectionTemplateRepository = {
       orderBy: { updatedAt: 'desc' },
       select: {
         ...templateSelect,
-        _count: { select: { blocks: true } },
+        _count: { select: { blocks: { where: notDeleted } } },
       },
     })
   },
 
   async findById(id: string) {
-    return prisma.selfInspectionTemplate.findUnique({
-      where: { id },
+    return prisma.selfInspectionTemplate.findFirst({
+      where: { id, ...notDeleted },
       select: templateSelect,
     }) as Promise<SelfInspectionTemplateRow | null>
   },
@@ -120,31 +122,56 @@ export const selfInspectionTemplateRepository = {
       headerConfig: Prisma.InputJsonValue | typeof Prisma.JsonNull
     }>
   ) {
-    return prisma.selfInspectionTemplate.update({
-      where: { id },
+    const n = await prisma.selfInspectionTemplate.updateMany({
+      where: { id, ...notDeleted },
       data: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.description !== undefined && { description: data.description }),
         ...(data.status !== undefined && { status: data.status }),
         ...(data.headerConfig !== undefined && { headerConfig: data.headerConfig }),
       },
+    })
+    if (n.count === 0) throw new Error('SELF_INSPECTION_TEMPLATE_NOT_FOUND_OR_DELETED')
+    const row = await prisma.selfInspectionTemplate.findFirst({
+      where: { id, ...notDeleted },
       select: templateSelect,
-    }) as Promise<SelfInspectionTemplateRow>
+    })
+    if (!row) throw new Error('SELF_INSPECTION_TEMPLATE_NOT_FOUND_OR_DELETED')
+    return row as SelfInspectionTemplateRow
   },
 
-  async delete(id: string) {
-    await prisma.selfInspectionTemplate.delete({ where: { id } })
+  async delete(id: string, deletedById: string) {
+    const blocks = await prisma.selfInspectionTemplateBlock.findMany({
+      where: { templateId: id, ...notDeleted },
+      select: { id: true },
+    })
+    const blockIds = blocks.map((b) => b.id)
+    if (blockIds.length > 0) {
+      await prisma.selfInspectionTemplateBlockItem.updateMany({
+        where: { blockId: { in: blockIds }, ...notDeleted },
+        data: softDeleteSet(deletedById),
+      })
+    }
+    await prisma.selfInspectionTemplateBlock.updateMany({
+      where: { templateId: id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
+    await prisma.selfInspectionTemplate.updateMany({
+      where: { id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
   },
 }
 
 export const selfInspectionBlockRepository = {
   async findManyByTemplateIdWithItems(templateId: string): Promise<SelfInspectionBlockWithItems[]> {
     const rows = await prisma.selfInspectionTemplateBlock.findMany({
-      where: { templateId },
+      where: { templateId, ...notDeleted },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       select: {
         ...blockSelect,
         items: {
+          where: notDeleted,
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
           select: itemSelect,
         },
@@ -155,26 +182,26 @@ export const selfInspectionBlockRepository = {
 
   async findManyByTemplateId(templateId: string) {
     return prisma.selfInspectionTemplateBlock.findMany({
-      where: { templateId },
+      where: { templateId, ...notDeleted },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       select: blockSelect,
     }) as Promise<SelfInspectionBlockRow[]>
   },
 
   async findById(id: string) {
-    return prisma.selfInspectionTemplateBlock.findUnique({
-      where: { id },
+    return prisma.selfInspectionTemplateBlock.findFirst({
+      where: { id, ...notDeleted },
       select: blockSelect,
     }) as Promise<SelfInspectionBlockRow | null>
   },
 
   async countByTemplateId(templateId: string) {
-    return prisma.selfInspectionTemplateBlock.count({ where: { templateId } })
+    return prisma.selfInspectionTemplateBlock.count({ where: { templateId, ...notDeleted } })
   },
 
   async maxSortOrder(templateId: string): Promise<number> {
     const agg = await prisma.selfInspectionTemplateBlock.aggregate({
-      where: { templateId },
+      where: { templateId, ...notDeleted },
       _max: { sortOrder: true },
     })
     return agg._max.sortOrder ?? -1
@@ -196,33 +223,46 @@ export const selfInspectionBlockRepository = {
     id: string,
     data: Partial<{ title: string; description: string | null; sortOrder: number }>
   ) {
-    return prisma.selfInspectionTemplateBlock.update({
-      where: { id },
+    const n = await prisma.selfInspectionTemplateBlock.updateMany({
+      where: { id, ...notDeleted },
       data: {
         ...(data.title !== undefined && { title: data.title }),
         ...(data.description !== undefined && { description: data.description }),
         ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
       },
+    })
+    if (n.count === 0) throw new Error('SELF_INSPECTION_BLOCK_NOT_FOUND_OR_DELETED')
+    const row = await prisma.selfInspectionTemplateBlock.findFirst({
+      where: { id, ...notDeleted },
       select: blockSelect,
-    }) as Promise<SelfInspectionBlockRow>
+    })
+    if (!row) throw new Error('SELF_INSPECTION_BLOCK_NOT_FOUND_OR_DELETED')
+    return row as SelfInspectionBlockRow
   },
 
-  async delete(id: string) {
-    await prisma.selfInspectionTemplateBlock.delete({ where: { id } })
+  async delete(id: string, deletedById: string) {
+    await prisma.selfInspectionTemplateBlockItem.updateMany({
+      where: { blockId: id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
+    await prisma.selfInspectionTemplateBlock.updateMany({
+      where: { id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
   },
 }
 
 export const selfInspectionBlockItemRepository = {
   async findById(id: string) {
-    return prisma.selfInspectionTemplateBlockItem.findUnique({
-      where: { id },
+    return prisma.selfInspectionTemplateBlockItem.findFirst({
+      where: { id, ...notDeleted },
       select: itemSelect,
     }) as Promise<SelfInspectionBlockItemRow | null>
   },
 
   async maxSortOrder(blockId: string): Promise<number> {
     const agg = await prisma.selfInspectionTemplateBlockItem.aggregate({
-      where: { blockId },
+      where: { blockId, ...notDeleted },
       _max: { sortOrder: true },
     })
     return agg._max.sortOrder ?? -1
@@ -250,19 +290,28 @@ export const selfInspectionBlockItemRepository = {
       sortOrder: number
     }>
   ) {
-    return prisma.selfInspectionTemplateBlockItem.update({
-      where: { id },
+    const n = await prisma.selfInspectionTemplateBlockItem.updateMany({
+      where: { id, ...notDeleted },
       data: {
         ...(data.categoryLabel !== undefined && { categoryLabel: data.categoryLabel }),
         ...(data.itemName !== undefined && { itemName: data.itemName }),
         ...(data.standardText !== undefined && { standardText: data.standardText }),
         ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
       },
+    })
+    if (n.count === 0) throw new Error('SELF_INSPECTION_ITEM_NOT_FOUND_OR_DELETED')
+    const row = await prisma.selfInspectionTemplateBlockItem.findFirst({
+      where: { id, ...notDeleted },
       select: itemSelect,
-    }) as Promise<SelfInspectionBlockItemRow>
+    })
+    if (!row) throw new Error('SELF_INSPECTION_ITEM_NOT_FOUND_OR_DELETED')
+    return row as SelfInspectionBlockItemRow
   },
 
-  async delete(id: string) {
-    await prisma.selfInspectionTemplateBlockItem.delete({ where: { id } })
+  async delete(id: string, deletedById: string) {
+    await prisma.selfInspectionTemplateBlockItem.updateMany({
+      where: { id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
   },
 }

@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/db.js'
 import { AppError } from '../../shared/errors.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import {
   repairRequestRepository,
   repairExecutionRecordRepository,
@@ -28,8 +29,8 @@ async function ensureUserCanAccessProject(
   isPlatformAdmin: boolean
 ): Promise<void> {
   if (isPlatformAdmin) return
-  const member = await prisma.projectMember.findUnique({
-    where: { projectId_userId: { projectId, userId } },
+  const member = await prisma.projectMember.findFirst({
+    where: { projectId, userId, ...notDeleted },
     select: { status: true },
   })
   if (!member || member.status !== 'active') {
@@ -190,7 +191,7 @@ export const repairRequestService = {
     if (!existing || existing.projectId !== projectId) {
       throw new AppError(404, 'NOT_FOUND', '找不到該報修單')
     }
-    await repairRequestRepository.delete(repairId)
+    await repairRequestRepository.delete(repairId, user.id)
   },
 
   async listRecords(

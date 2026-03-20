@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/db.js'
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 const select = {
   id: true,
@@ -56,22 +57,22 @@ export const cameraRepository = {
   },
 
   async findById(cameraId: string) {
-    return prisma.camera.findUnique({
-      where: { id: cameraId },
+    return prisma.camera.findFirst({
+      where: { id: cameraId, ...notDeleted },
       select,
     })
   },
 
   /** 取得單一攝影機（含 sourceUrlEnc，供設定頁解析 RTSP 用） */
   async findByIdWithSourceEnc(cameraId: string) {
-    return prisma.camera.findUnique({
-      where: { id: cameraId },
+    return prisma.camera.findFirst({
+      where: { id: cameraId, ...notDeleted },
       select: { ...select, sourceUrlEnc: true },
     })
   },
 
   async findByProjectId(projectId: string, options?: { status?: string }) {
-    const where: { projectId: string; status?: string } = { projectId }
+    const where: { projectId: string; status?: string } & typeof notDeleted = { projectId, ...notDeleted }
     if (options?.status) where.status = options.status
     const rows = await prisma.camera.findMany({
       where,
@@ -84,22 +85,22 @@ export const cameraRepository = {
   /** 專案內攝影機的 streamToken + sourceUrlEnc，供產出安裝包 YAML 用 */
   async findByProjectIdWithSourceEnc(projectId: string) {
     return prisma.camera.findMany({
-      where: { projectId },
+      where: { projectId, ...notDeleted },
       orderBy: { createdAt: 'asc' },
       select: { streamToken: true, sourceUrlEnc: true },
     })
   },
 
   async findByStreamToken(streamToken: string) {
-    return prisma.camera.findUnique({
-      where: { streamToken },
+    return prisma.camera.findFirst({
+      where: { streamToken, ...notDeleted },
       select: { ...select, sourceUrlEnc: true },
     })
   },
 
   async updateLastStreamAt(cameraId: string, lastStreamAt: Date) {
-    await prisma.camera.update({
-      where: { id: cameraId },
+    await prisma.camera.updateMany({
+      where: { id: cameraId, ...notDeleted },
       data: { lastStreamAt },
     })
   },
@@ -108,21 +109,31 @@ export const cameraRepository = {
     cameraId: string,
     data: { name?: string; status?: string; sourceUrlEnc?: string | null; connectionStatusOverride?: string | null }
   ) {
-    const row = await prisma.camera.update({
-      where: { id: cameraId },
+    const n = await prisma.camera.updateMany({
+      where: { id: cameraId, ...notDeleted },
       data: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.status !== undefined && { status: data.status }),
         ...(data.sourceUrlEnc !== undefined && { sourceUrlEnc: data.sourceUrlEnc }),
         ...(data.connectionStatusOverride !== undefined && { connectionStatusOverride: data.connectionStatusOverride }),
       },
+    })
+    if (n.count === 0) {
+      throw new Error('CAMERA_NOT_FOUND_OR_DELETED')
+    }
+    const row = await prisma.camera.findFirst({
+      where: { id: cameraId, ...notDeleted },
       select: { ...select, sourceUrlEnc: true },
     })
+    if (!row) throw new Error('CAMERA_NOT_FOUND_OR_DELETED')
     const { sourceUrlEnc: _, ...rest } = row
     return rest as CameraRecord
   },
 
-  async delete(cameraId: string) {
-    await prisma.camera.delete({ where: { id: cameraId } })
+  async softDelete(cameraId: string, deletedById: string) {
+    await prisma.camera.updateMany({
+      where: { id: cameraId, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
   },
 }

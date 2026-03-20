@@ -7,6 +7,7 @@ import { prisma } from '../lib/db.js'
 import { createAnnouncementSchema, updateAnnouncementSchema } from '../schemas/announcement.js'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { AppError } from '../shared/errors.js'
+import { notDeleted, softDeleteSet } from '../shared/soft-delete.js'
 
 export const platformAdminAnnouncementsRouter = Router()
 
@@ -31,11 +32,12 @@ platformAdminAnnouncementsRouter.get(
     const skip = (page - 1) * limit
     const [list, total] = await Promise.all([
       prisma.platformAnnouncement.findMany({
+        where: notDeleted,
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
       }),
-      prisma.platformAnnouncement.count(),
+      prisma.platformAnnouncement.count({ where: notDeleted }),
     ])
     res.status(200).json({ data: list, meta: { page, limit, total } })
   })
@@ -51,7 +53,7 @@ platformAdminAnnouncementsRouter.get(
   '/:id',
   asyncHandler(async (req: Request, res: Response) => {
     const id = paramId(req)
-    const row = await prisma.platformAnnouncement.findUnique({ where: { id } })
+    const row = await prisma.platformAnnouncement.findFirst({ where: { id, ...notDeleted } })
     if (!row) throw new AppError(404, 'NOT_FOUND', '找不到該公告')
     res.status(200).json({ data: row })
   })
@@ -87,7 +89,7 @@ platformAdminAnnouncementsRouter.patch(
   '/:id',
   asyncHandler(async (req: Request, res: Response) => {
     const id = paramId(req)
-    const existing = await prisma.platformAnnouncement.findUnique({ where: { id } })
+    const existing = await prisma.platformAnnouncement.findFirst({ where: { id, ...notDeleted } })
     if (!existing) throw new AppError(404, 'NOT_FOUND', '找不到該公告')
     const parsed = updateAnnouncementSchema.safeParse(req.body)
     if (!parsed.success) {
@@ -103,10 +105,13 @@ platformAdminAnnouncementsRouter.patch(
     if (publishedAt !== undefined) data.publishedAt = parseDate(publishedAt)
     if (expiresAt !== undefined) data.expiresAt = parseDate(expiresAt)
     if (targetTenantIds !== undefined) data.targetTenantIds = targetTenantIdsToJson(targetTenantIds)
-    const row = await prisma.platformAnnouncement.update({
-      where: { id },
+    const n = await prisma.platformAnnouncement.updateMany({
+      where: { id, ...notDeleted },
       data,
     })
+    if (n.count === 0) throw new AppError(404, 'NOT_FOUND', '找不到該公告')
+    const row = await prisma.platformAnnouncement.findFirst({ where: { id, ...notDeleted } })
+    if (!row) throw new AppError(404, 'NOT_FOUND', '找不到該公告')
     res.status(200).json({ data: row })
   })
 )
@@ -116,9 +121,13 @@ platformAdminAnnouncementsRouter.delete(
   '/:id',
   asyncHandler(async (req: Request, res: Response) => {
     const id = paramId(req)
-    await prisma.platformAnnouncement.delete({ where: { id } }).catch(() => {
-      throw new AppError(404, 'NOT_FOUND', '找不到該公告')
+    const uid = req.user?.id
+    if (!uid) throw new AppError(401, 'UNAUTHORIZED', '未授權')
+    const n = await prisma.platformAnnouncement.updateMany({
+      where: { id, ...notDeleted },
+      data: softDeleteSet(uid),
     })
+    if (n.count === 0) throw new AppError(404, 'NOT_FOUND', '找不到該公告')
     res.status(200).json({ data: { ok: true } })
   })
 )

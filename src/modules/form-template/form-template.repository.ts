@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/db.js'
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 export type FormTemplateRecord = {
   id: string
@@ -64,8 +65,8 @@ export const formTemplateRepository = {
   },
 
   async findById(id: string): Promise<(FormTemplateRecord & { uploadedBy?: { name: string | null } }) | null> {
-    const row = await prisma.formTemplate.findUnique({
-      where: { id },
+    const row = await prisma.formTemplate.findFirst({
+      where: { id, ...notDeleted },
       select: {
         ...select,
         uploadedBy: { select: { name: true } },
@@ -93,8 +94,8 @@ export const formTemplateRepository = {
   /** 專案可見：該租戶的預設樣板 + 該專案的自訂樣板 */
   async findForProject(projectId: string, tenantId: string | null): Promise<(FormTemplateRecord & { uploaderName?: string | null })[]> {
     const where = tenantId
-      ? { OR: [{ tenantId, projectId: null }, { projectId }] }
-      : { projectId }
+      ? { ...notDeleted, OR: [{ tenantId, projectId: null }, { projectId }] }
+      : { projectId, ...notDeleted }
     const rows = await prisma.formTemplate.findMany({
       where,
       orderBy: [{ projectId: 'asc' }, { updatedAt: 'desc' }],
@@ -110,22 +111,32 @@ export const formTemplateRepository = {
   },
 
   async update(id: string, data: { name?: string; description?: string | null }): Promise<FormTemplateRecord> {
-    const row = await prisma.formTemplate.update({
-      where: { id },
+    const n = await prisma.formTemplate.updateMany({
+      where: { id, ...notDeleted },
       data: {
         ...(data.name != null && { name: data.name }),
         ...(data.description !== undefined && { description: data.description }),
       },
+    })
+    if (n.count === 0) throw new Error('FORM_TEMPLATE_NOT_FOUND_OR_DELETED')
+    const row = await prisma.formTemplate.findFirst({
+      where: { id, ...notDeleted },
       select,
     })
+    if (!row) throw new Error('FORM_TEMPLATE_NOT_FOUND_OR_DELETED')
     return row as FormTemplateRecord
   },
 
-  async delete(id: string): Promise<{ storageKey: string } | null> {
-    const row = await prisma.formTemplate.delete({
-      where: { id },
+  async delete(id: string, deletedById: string): Promise<{ storageKey: string } | null> {
+    const prev = await prisma.formTemplate.findFirst({
+      where: { id, ...notDeleted },
       select: { storageKey: true },
     })
-    return row
+    if (!prev) return null
+    await prisma.formTemplate.updateMany({
+      where: { id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
+    return prev
   },
 }

@@ -1,4 +1,5 @@
 import { AppError } from '../../shared/errors.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import { prisma } from '../../lib/db.js'
 import { albumRepository, type AlbumRecord } from './album.repository.js'
 import { fileRepository, type AttachmentRecord } from '../file/file.repository.js'
@@ -15,8 +16,8 @@ async function ensureUserCanAccessProject(
   isPlatformAdmin: boolean
 ): Promise<void> {
   if (isPlatformAdmin) return
-  const member = await prisma.projectMember.findUnique({
-    where: { projectId_userId: { projectId, userId } },
+  const member = await prisma.projectMember.findFirst({
+    where: { projectId, userId, ...notDeleted },
     select: { status: true },
   })
   if (!member || member.status !== 'active') {
@@ -58,7 +59,7 @@ export const albumService = {
       throw new AppError(404, 'NOT_FOUND', '找不到該相簿')
     }
     await ensureUserCanAccessProject(album.projectId, userId, user.systemRole === 'platform_admin')
-    await albumRepository.delete(albumId)
+    await albumRepository.delete(albumId, userId)
   },
 
   async listAlbumPhotos(

@@ -1,9 +1,11 @@
 import { prisma } from '../../lib/db.js'
 import { AppError } from '../../shared/errors.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import { scheduleAdjustmentRepository, type ScheduleAdjustmentItem } from './schedule-adjustment.repository.js'
 import type { CreateScheduleAdjustmentBody, UpdateScheduleAdjustmentBody } from '../../schemas/scheduleAdjustment.js'
 
 type AuthUser = {
+  id: string
   systemRole: 'platform_admin' | 'tenant_admin' | 'project_user'
   tenantId: string | null
 }
@@ -15,8 +17,8 @@ function parseDate(value: string | null | undefined): Date | null {
 }
 
 async function ensureProjectAccess(projectId: string, user: AuthUser): Promise<void> {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, ...notDeleted },
     select: { tenantId: true },
   })
   if (!project) {
@@ -79,6 +81,6 @@ export const scheduleAdjustmentService = {
     if (!existing || existing.projectId !== projectId) {
       throw new AppError(404, 'NOT_FOUND', '找不到該筆工期調整')
     }
-    await scheduleAdjustmentRepository.delete(id)
+    await scheduleAdjustmentRepository.delete(id, user.id)
   },
 }

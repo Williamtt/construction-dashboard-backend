@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/db.js'
 import { AppError } from '../../shared/errors.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import { drawingNodeRepository, type DrawingNodeRecord } from './drawing-node.repository.js'
 import type { CreateDrawingNodeBody, UpdateDrawingNodeBody, MoveDrawingNodeBody } from '../../schemas/drawing-node.js'
 import { fileService } from '../file/file.service.js'
@@ -29,8 +30,8 @@ export type DrawingNodeTree = {
 }
 
 async function ensureProjectTenant(projectId: string, user: AuthUser): Promise<void> {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, ...notDeleted },
     select: { tenantId: true },
   })
   if (!project) throw new AppError(404, 'NOT_FOUND', '找不到該專案')
@@ -45,8 +46,8 @@ async function ensureUserCanAccessProject(
   isPlatformAdmin: boolean
 ): Promise<void> {
   if (isPlatformAdmin) return
-  const member = await prisma.projectMember.findUnique({
-    where: { projectId_userId: { projectId, userId } },
+  const member = await prisma.projectMember.findFirst({
+    where: { projectId, userId, ...notDeleted },
     select: { status: true },
   })
   if (!member || member.status !== 'active') {
@@ -99,6 +100,7 @@ async function attachLatestFiles(
   const attachments = await prisma.attachment.findMany({
     where: {
       projectId,
+      ...notDeleted,
       category: DRAWING_REVISION_CATEGORY,
       businessId: { in: leafIds },
     },
@@ -214,6 +216,7 @@ export const drawingNodeService = {
       const atts = await prisma.attachment.findMany({
         where: {
           projectId,
+          ...notDeleted,
           businessId: leafId,
           category: DRAWING_REVISION_CATEGORY,
         },
@@ -223,7 +226,7 @@ export const drawingNodeService = {
         await fileService.delete(a.id, user.id, user)
       }
     }
-    await drawingNodeRepository.deleteById(id)
+    await drawingNodeRepository.softDeleteSubtree(projectId, id, user.id)
   },
 
   async move(projectId: string, id: string, body: MoveDrawingNodeBody, user: AuthUser): Promise<DrawingNodeTree[]> {
@@ -288,6 +291,7 @@ export const drawingNodeService = {
     const rows = await prisma.attachment.findMany({
       where: {
         projectId,
+        ...notDeleted,
         businessId: nodeId,
         category: DRAWING_REVISION_CATEGORY,
       },

@@ -191,7 +191,7 @@ export const selfInspectionTemplateService = {
   async delete(user: AuthUser, templateId: string, queryTenantId?: string | null) {
     const tenantId = resolveTenantId(user, queryTenantId ?? null)
     await getTemplateForTenant(templateId, tenantId)
-    await selfInspectionTemplateRepository.delete(templateId)
+    await selfInspectionTemplateRepository.delete(templateId, user.id)
   },
 
   async createBlock(
@@ -241,7 +241,7 @@ export const selfInspectionTemplateService = {
     const tenantId = resolveTenantId(user, queryTenantId ?? null)
     await getTemplateForTenant(templateId, tenantId)
     await assertBlockBelongsToTemplate(blockId, templateId)
-    await selfInspectionBlockRepository.delete(blockId)
+    await selfInspectionBlockRepository.delete(blockId, user.id)
   },
 
   async createBlockItem(
@@ -303,6 +303,6 @@ export const selfInspectionTemplateService = {
     if (!existing || existing.blockId !== blockId) {
       throw new AppError(404, 'NOT_FOUND', '找不到該查驗項目')
     }
-    await selfInspectionBlockItemRepository.delete(itemId)
+    await selfInspectionBlockItemRepository.delete(itemId, user.id)
   },
 }

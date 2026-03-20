@@ -3,6 +3,7 @@ import archiver from 'archiver'
 import { Writable } from 'node:stream'
 import { AppError } from '../../shared/errors.js'
 import { prisma } from '../../lib/db.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import { projectRepository } from '../project/project.repository.js'
 import { cameraRepository, type CameraRecord } from './camera.repository.js'
 import { encryption } from '../../lib/encryption.js'
@@ -63,8 +64,8 @@ async function ensureUserCanAccessProject(
   isPlatformAdmin: boolean
 ): Promise<void> {
   if (isPlatformAdmin) return
-  const member = await prisma.projectMember.findUnique({
-    where: { projectId_userId: { projectId, userId } },
+  const member = await prisma.projectMember.findFirst({
+    where: { projectId, userId, ...notDeleted },
     select: { status: true },
   })
   if (!member || member.status !== 'active') {
@@ -372,7 +373,7 @@ export const cameraService = {
     if (!removed.ok) {
       throw new AppError(503, 'SERVICE_UNAVAILABLE', removed.error ?? '串流服務暫時無法連線，無法從 mediamtx 移除路徑')
     }
-    await cameraRepository.delete(cameraId)
+    await cameraRepository.softDelete(cameraId, user.id)
   },
 
   /** 手動標示為離線（或清除標示）；不影響實際串流，僅影響顯示狀態 */

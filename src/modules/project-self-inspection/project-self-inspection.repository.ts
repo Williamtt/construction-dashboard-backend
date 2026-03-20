@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/db.js'
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 const recordSelectList = {
   id: true,
@@ -37,7 +38,7 @@ export const projectSelfInspectionRepository = {
     if (templateIds.length === 0) return new Map<string, number>()
     const rows = await prisma.selfInspectionRecord.groupBy({
       by: ['templateId'],
-      where: { projectId, templateId: { in: templateIds } },
+      where: { projectId, templateId: { in: templateIds }, ...notDeleted },
       _count: { _all: true },
     })
     return new Map(rows.map((r) => [r.templateId, r._count._all]))
@@ -49,7 +50,7 @@ export const projectSelfInspectionRepository = {
     args: { skip: number; take: number }
   ) {
     return prisma.selfInspectionRecord.findMany({
-      where: { projectId, templateId },
+      where: { projectId, templateId, ...notDeleted },
       orderBy: { createdAt: 'desc' },
       skip: args.skip,
       take: args.take,
@@ -58,12 +59,12 @@ export const projectSelfInspectionRepository = {
   },
 
   async countByProjectAndTemplate(projectId: string, templateId: string) {
-    return prisma.selfInspectionRecord.count({ where: { projectId, templateId } })
+    return prisma.selfInspectionRecord.count({ where: { projectId, templateId, ...notDeleted } })
   },
 
   async findById(recordId: string) {
-    return prisma.selfInspectionRecord.findUnique({
-      where: { id: recordId },
+    return prisma.selfInspectionRecord.findFirst({
+      where: { id: recordId, ...notDeleted },
       select: recordSelectDetail,
     }) as Promise<SelfInspectionRecordRow | null>
   },
@@ -101,7 +102,7 @@ const templateBriefSelect = {
 export const projectSelfInspectionLinkRepository = {
   async findLinkedTemplateIds(projectId: string) {
     const rows = await prisma.projectSelfInspectionTemplateLink.findMany({
-      where: { projectId },
+      where: { projectId, ...notDeleted },
       select: { templateId: true },
     })
     return rows.map((r) => r.templateId)
@@ -109,7 +110,7 @@ export const projectSelfInspectionLinkRepository = {
 
   async findLinksWithTemplates(projectId: string) {
     return prisma.projectSelfInspectionTemplateLink.findMany({
-      where: { projectId },
+      where: { projectId, ...notDeleted, template: notDeleted },
       orderBy: { createdAt: 'desc' },
       select: {
         createdAt: true,
@@ -119,26 +120,36 @@ export const projectSelfInspectionLinkRepository = {
   },
 
   async exists(projectId: string, templateId: string) {
-    const row = await prisma.projectSelfInspectionTemplateLink.findUnique({
-      where: {
-        projectId_templateId: { projectId, templateId },
-      },
+    const row = await prisma.projectSelfInspectionTemplateLink.findFirst({
+      where: { projectId, templateId, ...notDeleted },
     })
     return row != null
   },
 
   async create(projectId: string, templateId: string) {
+    const prev = await prisma.projectSelfInspectionTemplateLink.findFirst({
+      where: { projectId, templateId },
+    })
+    if (prev) {
+      if (prev.deletedAt != null) {
+        return prisma.projectSelfInspectionTemplateLink.update({
+          where: { id: prev.id },
+          data: { deletedAt: null, deletedById: null },
+          select: { createdAt: true },
+        })
+      }
+      throw new Error('SELF_INSPECTION_LINK_ALREADY_ACTIVE')
+    }
     return prisma.projectSelfInspectionTemplateLink.create({
       data: { projectId, templateId },
       select: { createdAt: true },
     })
   },
 
-  async delete(projectId: string, templateId: string) {
-    await prisma.projectSelfInspectionTemplateLink.delete({
-      where: {
-        projectId_templateId: { projectId, templateId },
-      },
+  async delete(projectId: string, templateId: string, deletedById: string) {
+    await prisma.projectSelfInspectionTemplateLink.updateMany({
+      where: { projectId, templateId, ...notDeleted },
+      data: softDeleteSet(deletedById),
     })
   },
 }

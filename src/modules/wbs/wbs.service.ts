@@ -1,9 +1,11 @@
 import { prisma } from '../../lib/db.js'
 import { AppError } from '../../shared/errors.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import { wbsRepository, type WbsNodeRecord } from './wbs.repository.js'
 import type { CreateWbsNodeBody, UpdateWbsNodeBody, MoveWbsNodeBody } from '../../schemas/wbs.js'
 
 type AuthUser = {
+  id: string
   systemRole: 'platform_admin' | 'tenant_admin' | 'project_user'
   tenantId: string | null
 }
@@ -22,8 +24,8 @@ export type WbsNodeTree = {
 }
 
 async function ensureProjectAccess(projectId: string, user: AuthUser): Promise<void> {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, ...notDeleted },
     select: { tenantId: true },
   })
   if (!project) throw new AppError(404, 'NOT_FOUND', '找不到該專案')
@@ -35,7 +37,7 @@ async function ensureProjectAccess(projectId: string, user: AuthUser): Promise<v
 async function ensureResourceIdsInProject(projectId: string, resourceIds: string[]): Promise<void> {
   if (resourceIds.length === 0) return
   const found = await prisma.projectResource.findMany({
-    where: { projectId, id: { in: resourceIds } },
+    where: { projectId, id: { in: resourceIds }, ...notDeleted },
     select: { id: true },
   })
   if (found.length !== resourceIds.length) {
@@ -188,7 +190,8 @@ export const wbsService = {
     if (existing.isProjectRoot) {
       throw new AppError(400, 'BAD_REQUEST', '專案根節點（專案名稱層）不可修改')
     }
-    const hasChildren = (await prisma.wbsNode.count({ where: { parentId: id } })) > 0
+    const hasChildren =
+      (await prisma.wbsNode.count({ where: { parentId: id, ...notDeleted } })) > 0
     const updates: Parameters<typeof wbsRepository.update>[1] = {}
     if (body.name !== undefined) updates.name = body.name.trim()
     /** 父節點僅允許改名稱；排程與資源由子項決定 */
@@ -222,7 +225,7 @@ export const wbsService = {
     if (existing.isProjectRoot) {
       throw new AppError(400, 'BAD_REQUEST', '不可刪除專案根節點')
     }
-    await deleteRecursive(id)
+    await wbsRepository.softDeleteSubtree(projectId, id, user.id)
     const flat = await wbsRepository.findManyByProjectId(projectId)
     await applyCodeUpdates(flat)
   },
@@ -296,12 +299,6 @@ function getDescendantIds(flat: WbsNodeRecord[], parentId: string): string[] {
   }
   collect(parentId)
   return ids
-}
-
-async function deleteRecursive(id: string): Promise<void> {
-  const children = await prisma.wbsNode.findMany({ where: { parentId: id }, select: { id: true } })
-  for (const c of children) await deleteRecursive(c.id)
-  await wbsRepository.delete(id)
 }
 
 async function applyCodeUpdates(flat: WbsNodeRecord[]): Promise<void> {

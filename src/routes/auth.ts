@@ -58,8 +58,8 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
       return
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: parsed.data.email },
+    const user = await prisma.user.findFirst({
+      where: { email: parsed.data.email, deletedAt: null },
       select: {
         id: true,
         email: true,
@@ -201,8 +201,8 @@ authRouter.get(
     if (!req.user) {
       throw new AppError(401, 'UNAUTHORIZED', '未登入')
     }
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+    const user = await prisma.user.findFirst({
+      where: { id: req.user.id, deletedAt: null },
       select: {
         id: true,
         email: true,
@@ -241,8 +241,8 @@ authRouter.get(
       res.status(200).json({ data: { name: null, hasLogo: false } })
       return
     }
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
+    const tenant = await prisma.tenant.findFirst({
+      where: { id: tenantId, deletedAt: null },
       select: { name: true, logoStorageKey: true },
     })
     if (!tenant) {
@@ -281,8 +281,8 @@ authRouter.post(
     if (!AVATAR_ALLOWED_MIMES.includes(mime)) {
       throw new AppError(400, 'VALIDATION_ERROR', '僅支援 PNG、JPG、WebP 圖片')
     }
-    const existing = await prisma.user.findUnique({
-      where: { id: req.user.id },
+    const existing = await prisma.user.findFirst({
+      where: { id: req.user.id, deletedAt: null },
       select: { avatarStorageKey: true },
     })
     if (!existing) {
@@ -310,8 +310,8 @@ authRouter.get(
     if (!req.user) {
       throw new AppError(401, 'UNAUTHORIZED', '未登入')
     }
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+    const user = await prisma.user.findFirst({
+      where: { id: req.user.id, deletedAt: null },
       select: { avatarStorageKey: true },
     })
     if (!user?.avatarStorageKey) {
@@ -336,8 +336,8 @@ authRouter.get(
     if (!tenantId) {
       throw new AppError(404, 'NOT_FOUND', '無所屬租戶')
     }
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
+    const tenant = await prisma.tenant.findFirst({
+      where: { id: tenantId, deletedAt: null },
       select: { logoStorageKey: true },
     })
     if (!tenant?.logoStorageKey) {
@@ -370,8 +370,8 @@ authRouter.patch('/me/password', authMiddleware, async (req: Request, res: Respo
       })
       return
     }
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+    const user = await prisma.user.findFirst({
+      where: { id: req.user.id, deletedAt: null },
     })
     if (!user) {
       res.status(401).json({

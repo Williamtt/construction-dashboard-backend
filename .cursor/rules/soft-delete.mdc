@@ -1,0 +1,35 @@
+---
+description: 後端統一軟刪除（deletedAt／deletedById）、查詢與 DELETE API 實作方式；詳見 docs/soft-delete.md
+alwaysApply: true
+---
+
+# 軟刪除規範（後端）
+
+新增或修改 API／Repository／Service 時請遵守。
+
+## 欄位
+
+- `deletedAt: DateTime?` — `null` = 有效；非 null = 已刪除。
+- `deletedById: string?` — 操作者 `User.id`，**不要**對 `User` 加 FK。
+
+使用 `src/shared/soft-delete.ts` 的 `notDeleted`、`softDeleteSet(deletedById)`。
+
+## 查詢
+
+- 預設業務查詢一律合併 `...notDeleted`。
+- 關聯若也需排除已刪使用者／租戶，用巢狀 `user: notDeleted` 等。
+- 已移除 Prisma 層級的 `@@unique`（改為 DB partial unique）者，**禁止**使用舊的 compound `findUnique`；改用 `findFirst({ where: { …, ...notDeleted } })`。
+
+## 刪除
+
+- 對具備軟刪欄位之實體：**禁止** `prisma.*.delete`；應 `updateMany`/`update` + `softDeleteSet(操作者 id)`。
+- 子列／子樹若同表含軟刪欄位，刪主體時一併軟刪子列（或依產品規則文件化）。
+- **無** `deletedAt` 的純 junction（如 `wbs_node_resources`、`album_photos`）可維持 `deleteMany`。
+
+## 認證
+
+- 登入與 JWT 載入使用者時必須排除 `deletedAt != null` 的 `User`（與停權、租戶檢查一併處理）。
+
+## 文件
+
+- 架構說明、partial unique 列表、子樹策略見 **`docs/soft-delete.md`**。

@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/db.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 
 const userSelect = {
   id: true,
@@ -25,6 +26,7 @@ export type UserListItem = {
 export const userRepository = {
   async findMany(args: { skip: number; take: number }) {
     return prisma.user.findMany({
+      where: { ...notDeleted },
       skip: args.skip,
       take: args.take,
       orderBy: { updatedAt: 'desc' },
@@ -33,19 +35,19 @@ export const userRepository = {
   },
 
   async count() {
-    return prisma.user.count()
+    return prisma.user.count({ where: { ...notDeleted } })
   },
 
   async findById(id: string) {
-    return prisma.user.findUnique({
-      where: { id },
+    return prisma.user.findFirst({
+      where: { id, ...notDeleted },
       select: userSelect,
     }) as Promise<UserListItem | null>
   },
 
   async findByEmail(email: string) {
-    return prisma.user.findUnique({
-      where: { email },
+    return prisma.user.findFirst({
+      where: { email, ...notDeleted },
       select: { id: true },
     })
   },

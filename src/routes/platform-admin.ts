@@ -16,6 +16,7 @@ import { fileRepository } from '../modules/file/file.repository.js'
 import { updatePlatformSettingsSchema } from '../schemas/platform-setting.js'
 import { storage } from '../lib/storage.js'
 import { clearMaintenanceCache } from '../middleware/maintenance.js'
+import { notDeleted, softDeleteSet } from '../shared/soft-delete.js'
 
 export const platformAdminRouter = Router()
 
@@ -37,7 +38,10 @@ platformAdminRouter.get(
     const skip = (page - 1) * limit
     const statusFilter = req.query.status as string | undefined
 
-    const where = statusFilter === 'active' || statusFilter === 'suspended' ? { status: statusFilter } : {}
+    const where =
+      statusFilter === 'active' || statusFilter === 'suspended'
+        ? { status: statusFilter, ...notDeleted }
+        : { ...notDeleted }
 
     const [list, total] = await Promise.all([
       prisma.tenant.findMany({
@@ -62,8 +66,8 @@ platformAdminRouter.get(
     if (!id) {
       throw new AppError(400, 'BAD_REQUEST', '缺少租戶 id')
     }
-    const tenant = await prisma.tenant.findUnique({
-      where: { id },
+    const tenant = await prisma.tenant.findFirst({
+      where: { id, ...notDeleted },
       include: { _count: { select: { users: true, projects: true } } },
     })
     if (!tenant) {
@@ -90,7 +94,7 @@ platformAdminRouter.post(
     }
     const { name, slug, status, expiresAt, userLimit, fileSizeLimitMb, storageQuotaMb } = parsed.data
     if (slug) {
-      const existing = await prisma.tenant.findUnique({ where: { slug } })
+      const existing = await prisma.tenant.findFirst({ where: { slug, ...notDeleted } })
       if (existing) {
         throw new AppError(409, 'CONFLICT', '此 slug 已被使用')
       }
@@ -130,13 +134,15 @@ platformAdminRouter.patch(
       })
       return
     }
-    const existing = await prisma.tenant.findUnique({ where: { id } })
+    const existing = await prisma.tenant.findFirst({ where: { id, ...notDeleted } })
     if (!existing) {
       throw new AppError(404, 'NOT_FOUND', '找不到該租戶')
     }
     const { name, slug, status, expiresAt, userLimit, fileSizeLimitMb, storageQuotaMb } = parsed.data
     if (slug !== undefined && slug !== existing.slug) {
-      const duplicate = await prisma.tenant.findUnique({ where: { slug: slug || undefined } })
+      const duplicate = await prisma.tenant.findFirst({
+        where: { slug: slug || undefined, ...notDeleted },
+      })
       if (duplicate) {
         throw new AppError(409, 'CONFLICT', '此 slug 已被使用')
       }
@@ -162,15 +168,16 @@ platformAdminRouter.patch(
 platformAdminRouter.delete(
   '/tenants/:id',
   asyncHandler(async (req: Request, res: Response) => {
+    const actor = req.user!
     const id = typeof req.params.id === 'string' ? req.params.id : req.params.id?.[0]
     if (!id) {
       throw new AppError(400, 'BAD_REQUEST', '缺少租戶 id')
     }
-    const tenant = await prisma.tenant.findUnique({ where: { id } })
+    const tenant = await prisma.tenant.findFirst({ where: { id, ...notDeleted } })
     if (!tenant) {
       throw new AppError(404, 'NOT_FOUND', '找不到該租戶')
     }
-    await prisma.tenant.delete({ where: { id } })
+    await prisma.tenant.update({ where: { id }, data: softDeleteSet(actor.id) })
     res.status(200).json({ data: { id } })
   })
 )
@@ -184,7 +191,7 @@ platformAdminRouter.get(
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20))
     const skip = (page - 1) * limit
 
-    const where = tenantId ? { tenantId } : {}
+    const where = tenantId ? { tenantId, ...notDeleted } : { ...notDeleted }
 
     const [list, total] = await Promise.all([
       prisma.project.findMany({
@@ -228,16 +235,20 @@ platformAdminRouter.get(
 platformAdminRouter.delete(
   '/projects/:id',
   asyncHandler(async (req: Request, res: Response) => {
+    const actor = req.user!
     const projectId = typeof req.params.id === 'string' ? req.params.id : req.params.id?.[0]
     if (!projectId) throw new AppError(400, 'BAD_REQUEST', '缺少專案 id')
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, ...notDeleted },
       select: { id: true },
     })
     if (!project) {
       throw new AppError(404, 'NOT_FOUND', '找不到該專案')
     }
-    await prisma.project.delete({ where: { id: projectId } })
+    await prisma.project.update({
+      where: { id: projectId },
+      data: softDeleteSet(actor.id),
+    })
     res.status(200).json({ data: { id: projectId } })
   })
 )
@@ -253,7 +264,7 @@ platformAdminRouter.get(
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20))
     const skip = (page - 1) * limit
 
-    const where: Prisma.UserWhereInput = {}
+    const where: Prisma.UserWhereInput = { ...notDeleted }
     if (tenantId) where.tenantId = tenantId
     if (systemRole === 'platform_admin' || systemRole === 'tenant_admin' || systemRole === 'project_user') where.systemRole = systemRole
     if (memberType === 'internal' || memberType === 'external') where.memberType = memberType
@@ -309,14 +320,17 @@ platformAdminRouter.delete(
     if (targetId === user.id) {
       throw new AppError(400, 'BAD_REQUEST', '無法刪除自己的帳號')
     }
-    const target = await prisma.user.findUnique({
-      where: { id: targetId },
+    const target = await prisma.user.findFirst({
+      where: { id: targetId, ...notDeleted },
       select: { id: true },
     })
     if (!target) {
       throw new AppError(404, 'NOT_FOUND', '找不到該使用者')
     }
-    await prisma.user.delete({ where: { id: targetId } })
+    await prisma.user.update({
+      where: { id: targetId },
+      data: softDeleteSet(user.id),
+    })
     res.status(200).json({ data: { id: targetId } })
   })
 )
@@ -333,7 +347,7 @@ platformAdminRouter.patch(
       const msg = parsed.error.errors[0]?.message ?? '欄位驗證失敗'
       throw new AppError(400, 'VALIDATION_ERROR', msg)
     }
-    const user = await prisma.user.findUnique({ where: { id: userId } })
+    const user = await prisma.user.findFirst({ where: { id: userId, ...notDeleted } })
     if (!user) throw new AppError(404, 'NOT_FOUND', '找不到該使用者')
     const passwordHash = await bcrypt.hash(parsed.data.newPassword, 10)
     await prisma.user.update({

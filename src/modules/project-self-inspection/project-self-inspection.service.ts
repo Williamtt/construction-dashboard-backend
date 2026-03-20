@@ -7,6 +7,7 @@ import {
   type SelfInspectionBlockWithItems,
 } from '../self-inspection-template/self-inspection-template.repository.js'
 import { mergeHeaderConfig, type HeaderConfig } from '../../schemas/self-inspection-template.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import type { FilledPayloadInput } from '../../schemas/self-inspection-record.js'
 import {
   projectSelfInspectionRepository,
@@ -27,8 +28,8 @@ async function ensureUserCanAccessProject(
   isPlatformAdmin: boolean
 ): Promise<void> {
   if (isPlatformAdmin) return
-  const member = await prisma.projectMember.findUnique({
-    where: { projectId_userId: { projectId, userId } },
+  const member = await prisma.projectMember.findFirst({
+    where: { projectId, userId, ...notDeleted },
     select: { status: true },
   })
   if (!member || member.status !== 'active') {
@@ -37,8 +38,8 @@ async function ensureUserCanAccessProject(
 }
 
 async function getProjectTenantId(projectId: string): Promise<string> {
-  const p = await prisma.project.findUnique({
-    where: { id: projectId },
+  const p = await prisma.project.findFirst({
+    where: { id: projectId, ...notDeleted },
     select: { tenantId: true },
   })
   if (!p) {
@@ -276,7 +277,15 @@ export const projectSelfInspectionService = {
     if (exists) {
       throw new AppError(409, 'CONFLICT', '此樣板已匯入本專案')
     }
-    const link = await projectSelfInspectionLinkRepository.create(projectId, templateId)
+    let link: { createdAt: Date }
+    try {
+      link = await projectSelfInspectionLinkRepository.create(projectId, templateId)
+    } catch (e) {
+      if (e instanceof Error && e.message === 'SELF_INSPECTION_LINK_ALREADY_ACTIVE') {
+        throw new AppError(409, 'CONFLICT', '此樣板已匯入本專案')
+      }
+      throw e
+    }
     return {
       id: templateRow.id,
       tenantId: templateRow.tenantId,
@@ -306,7 +315,7 @@ export const projectSelfInspectionService = {
         '此樣板於本專案已有查驗紀錄，無法移除匯入'
       )
     }
-    await projectSelfInspectionLinkRepository.delete(projectId, templateId)
+    await projectSelfInspectionLinkRepository.delete(projectId, templateId, user.id)
   },
 
   async getTemplateForProject(projectId: string, templateId: string, user: AuthUser) {

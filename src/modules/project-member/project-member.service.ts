@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/db.js'
 import { AppError } from '../../shared/errors.js'
+import { notDeleted } from '../../shared/soft-delete.js'
 import { projectMemberRepository, type ProjectMemberItem } from './project-member.repository.js'
 import { projectRepository } from '../project/project.repository.js'
 import type { AddProjectMemberBody } from '../../schemas/project-member.js'
@@ -16,8 +17,8 @@ async function ensureCanAccessProjectMembers(projectId: string, user: AuthUser):
   const project = await projectRepository.findById(projectId)
   if (!project) throw new AppError(404, 'NOT_FOUND', '找不到該專案')
   if (user.systemRole === 'tenant_admin' && project.tenantId === user.tenantId) return
-  const member = await prisma.projectMember.findUnique({
-    where: { projectId_userId: { projectId, userId: user.id } },
+  const member = await prisma.projectMember.findFirst({
+    where: { projectId, userId: user.id, ...notDeleted },
     select: { status: true },
   })
   if (!member || member.status !== 'active') {
@@ -61,8 +62,8 @@ export const projectMemberService = {
     if (!project.tenantId) {
       throw new AppError(400, 'BAD_REQUEST', '此專案未綁定租戶，無法加入成員')
     }
-    const targetUser = await prisma.user.findUnique({
-      where: { id: data.userId },
+    const targetUser = await prisma.user.findFirst({
+      where: { id: data.userId, ...notDeleted },
       select: { id: true, tenantId: true, status: true },
     })
     if (!targetUser) throw new AppError(404, 'NOT_FOUND', '找不到該使用者')
@@ -74,7 +75,14 @@ export const projectMemberService = {
     }
     const exists = await projectMemberRepository.exists(projectId, data.userId)
     if (exists) throw new AppError(409, 'CONFLICT', '該成員已在專案中')
-    await projectMemberRepository.create(projectId, data.userId, 'member')
+    try {
+      await projectMemberRepository.create(projectId, data.userId, 'member')
+    } catch (e) {
+      if (e instanceof Error && e.message === 'PROJECT_MEMBER_ALREADY_ACTIVE') {
+        throw new AppError(409, 'CONFLICT', '該成員已在專案中')
+      }
+      throw e
+    }
     const list = await projectMemberRepository.findManyByProjectId(projectId)
     const added = list.find((m) => m.userId === data.userId)
     if (!added) throw new AppError(500, 'INTERNAL_ERROR', '新增後無法取得成員資料')
@@ -85,7 +93,7 @@ export const projectMemberService = {
     await ensureCanManageProjectMembers(projectId, user)
     const exists = await projectMemberRepository.exists(projectId, userId)
     if (!exists) throw new AppError(404, 'NOT_FOUND', '該使用者不是此專案成員')
-    await projectMemberRepository.deleteByProjectAndUser(projectId, userId)
+    await projectMemberRepository.deleteByProjectAndUser(projectId, userId, user.id)
   },
 
   async setStatus(

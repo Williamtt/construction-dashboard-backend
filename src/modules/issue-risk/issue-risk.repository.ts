@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/db.js'
+import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 
 export type IssueRiskRecord = {
   id: string
@@ -30,7 +31,7 @@ const selectBase = {
 export const issueRiskRepository = {
   async findManyByProjectId(projectId: string): Promise<IssueRiskWithRelations[]> {
     const rows = await prisma.projectIssueRisk.findMany({
-      where: { projectId },
+      where: { projectId, ...notDeleted },
       orderBy: { createdAt: 'desc' },
       select: {
         ...selectBase,
@@ -38,6 +39,7 @@ export const issueRiskRepository = {
           select: { id: true, name: true, email: true },
         },
         wbsLinks: {
+          where: { wbsNode: notDeleted },
           select: {
             wbsNode: {
               select: { id: true, code: true, name: true },
@@ -50,14 +52,15 @@ export const issueRiskRepository = {
   },
 
   async findById(id: string): Promise<IssueRiskWithRelations | null> {
-    const row = await prisma.projectIssueRisk.findUnique({
-      where: { id },
+    const row = await prisma.projectIssueRisk.findFirst({
+      where: { id, ...notDeleted },
       select: {
         ...selectBase,
         assignee: {
           select: { id: true, name: true, email: true },
         },
         wbsLinks: {
+          where: { wbsNode: notDeleted },
           select: {
             wbsNode: {
               select: { id: true, code: true, name: true },
@@ -109,15 +112,24 @@ export const issueRiskRepository = {
         })
       }
     }
-    const row = await prisma.projectIssueRisk.update({
-      where: { id },
+    const n = await prisma.projectIssueRisk.updateMany({
+      where: { id, ...notDeleted },
       data: rest,
+    })
+    if (n.count === 0) throw new Error('ISSUE_RISK_NOT_FOUND_OR_DELETED')
+    const row = await prisma.projectIssueRisk.findFirst({
+      where: { id, ...notDeleted },
       select: selectBase,
     })
+    if (!row) throw new Error('ISSUE_RISK_NOT_FOUND_OR_DELETED')
     return row as IssueRiskRecord
   },
 
-  async delete(id: string): Promise<void> {
-    await prisma.projectIssueRisk.delete({ where: { id } })
+  async delete(id: string, deletedById: string): Promise<void> {
+    await prisma.projectIssueRiskWbsNode.deleteMany({ where: { issueRiskId: id } })
+    await prisma.projectIssueRisk.updateMany({
+      where: { id, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
   },
 }
