@@ -83,4 +83,12 @@ export const pccesImportController = {
     await pccesImportService.softDelete(projectId, importId, req.user)
     res.status(200).json({ data: { ok: true } })
   },
+
+  async approve(req: Request, res: Response) {
+    if (!req.user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
+    const projectId = getProjectId(req)
+    const importId = getImportId(req)
+    const data = await pccesImportService.approve(projectId, importId, req.user)
+    res.status(200).json({ data })
+  },
 }

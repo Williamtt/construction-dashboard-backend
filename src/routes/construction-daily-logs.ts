@@ -10,6 +10,13 @@ constructionDailyLogsRouter.get(
 )
 
 constructionDailyLogsRouter.get(
+  '/pcces-work-items',
+  asyncHandler(
+    constructionDailyLogController.pccesWorkItemPicker.bind(constructionDailyLogController)
+  )
+)
+
+constructionDailyLogsRouter.get(
   '/',
   asyncHandler(constructionDailyLogController.list.bind(constructionDailyLogController))
 )

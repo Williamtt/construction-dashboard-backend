@@ -23,6 +23,8 @@ function serializeImport(row: {
   attachmentId: string | null
   itemCount: number
   generalCount: number
+  approvedAt: Date | null
+  approvedById: string | null
   createdAt: Date
   createdById: string
 }) {
@@ -35,6 +37,8 @@ function serializeImport(row: {
     attachmentId: row.attachmentId,
     itemCount: row.itemCount,
     generalCount: row.generalCount,
+    approvedAt: row.approvedAt?.toISOString() ?? null,
+    approvedById: row.approvedById,
     createdAt: row.createdAt.toISOString(),
     createdById: row.createdById,
   }
@@ -157,6 +161,15 @@ export const pccesImportService = {
 
     const withAtt = await pccesImportRepository.findByIdForProject(projectId, created.id)
     return serializeImport(withAtt ?? created)
+  },
+
+  async approve(projectId: string, importId: string, user: AuthUser) {
+    await assertProjectModuleAction(user, projectId, 'construction.pcces', 'update')
+    const ok = await pccesImportRepository.approveImport(projectId, importId, user.id)
+    if (!ok) throw new AppError(404, 'NOT_FOUND', '找不到該次匯入')
+    const row = await pccesImportRepository.findByIdForProject(projectId, importId)
+    if (!row) throw new AppError(500, 'INTERNAL_ERROR', '核定後讀取失敗')
+    return serializeImport(row)
   },
 
   async softDelete(projectId: string, importId: string, user: AuthUser) {

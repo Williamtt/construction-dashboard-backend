@@ -19,6 +19,7 @@ import { projectSelfInspectionsRouter } from './project-self-inspections.js'
 import { drawingNodesRouter } from './drawing-nodes.js'
 import { pccesImportsRouter } from './pcces-imports.js'
 import { constructionDailyLogsRouter } from './construction-daily-logs.js'
+import { constructionValuationsRouter } from './construction-valuations.js'
 
 export const projectsRouter = Router()
 
@@ -48,6 +49,9 @@ projectsRouter.use('/:projectId/pcces-imports', pccesImportsRouter)
 
 /** 公共工程施工日誌（依附表四） */
 projectsRouter.use('/:projectId/construction-daily-logs', constructionDailyLogsRouter)
+
+/** 估驗計價 */
+projectsRouter.use('/:projectId/construction-valuations', constructionValuationsRouter)
 
 /** WBS 工作分解結構（列表、新增、編輯、刪除、拖移） */
 projectsRouter.use('/:projectId/wbs', wbsRouter)

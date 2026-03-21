@@ -11,6 +11,8 @@ export type PccesImportListRow = {
   attachmentId: string | null
   itemCount: number
   generalCount: number
+  approvedAt: Date | null
+  approvedById: string | null
   createdAt: Date
   createdById: string
 }
@@ -142,6 +144,8 @@ export const pccesImportRepository = {
       attachmentId: created.attachmentId,
       itemCount: created.itemCount,
       generalCount: created.generalCount,
+      approvedAt: created.approvedAt,
+      approvedById: created.approvedById,
       createdAt: created.createdAt,
       createdById: created.createdById,
     }
@@ -171,10 +175,36 @@ export const pccesImportRepository = {
         attachmentId: r.attachmentId,
         itemCount: c.itemCount,
         generalCount: c.generalCount,
+        approvedAt: r.approvedAt,
+        approvedById: r.approvedById,
         createdAt: r.createdAt,
         createdById: r.createdById,
       }
     })
+  },
+
+  /** 專案內「最新核定版」：已核定中 version 最大者（施工日誌工項來源） */
+  async findLatestApprovedImport(projectId: string): Promise<{ id: string; version: number } | null> {
+    const row = await prisma.pccesImport.findFirst({
+      where: { projectId, approvedAt: { not: null }, ...notDeleted },
+      orderBy: { version: 'desc' },
+      select: { id: true, version: true },
+    })
+    return row
+  },
+
+  async approveImport(projectId: string, importId: string, approvedById: string): Promise<boolean> {
+    const existing = await prisma.pccesImport.findFirst({
+      where: { id: importId, projectId, ...notDeleted },
+      select: { id: true, approvedAt: true },
+    })
+    if (!existing) return false
+    if (existing.approvedAt != null) return true
+    await prisma.pccesImport.update({
+      where: { id: importId },
+      data: { approvedAt: new Date(), approvedById },
+    })
+    return true
   },
 
   async findByIdForProject(
@@ -196,6 +226,8 @@ export const pccesImportRepository = {
       attachmentId: r.attachmentId,
       itemCount: c.itemCount,
       generalCount: c.generalCount,
+      approvedAt: r.approvedAt,
+      approvedById: r.approvedById,
       createdAt: r.createdAt,
       createdById: r.createdById,
     }

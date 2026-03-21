@@ -8,6 +8,7 @@ alwaysApply: true
 每次完成程式變更（後端或前端）後，**必須**執行下列檢查，確認 terminal / build 沒有問題：
 
 1. **後端**（construction-dashboard-backend）
+   - 若有變更 `prisma/schema.prisma` 或新增 migration：已執行 `npx prisma migrate deploy`（或 `db:migrate:dev`）且成功，並已執行 `npx prisma generate`（見 prisma-database.mdc）。
    - 執行 `npm run build`，確認 TypeScript 編譯通過（無 TS 錯誤）。
    - 若有執行 `npm run dev`，確認 terminal 無執行時錯誤。
 

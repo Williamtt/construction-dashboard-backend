@@ -1,4 +1,5 @@
 import type { ConstructionDailyLog } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/db.js'
 import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 import type { ConstructionDailyLogCreateInput } from '../../schemas/construction-daily-log.js'
@@ -44,7 +45,10 @@ export const constructionDailyLogRepository = {
     return prisma.constructionDailyLog.findFirst({
       where: { id: logId, projectId, ...notDeleted },
       include: {
-        workItems: { orderBy: { sortOrder: 'asc' } },
+        workItems: {
+          orderBy: { sortOrder: 'asc' },
+          include: { pccesItem: { select: { itemNo: true } } },
+        },
         materials: { orderBy: { sortOrder: 'asc' } },
         personnelEquipmentRows: { orderBy: { sortOrder: 'asc' } },
       },
@@ -107,6 +111,7 @@ export const constructionDailyLogRepository = {
             dailyQty: w.dailyQty,
             accumulatedQty: w.accumulatedQty,
             remark: w.remark,
+            pccesItemId: w.pccesItemId ?? null,
           })),
         })
       }
@@ -210,6 +215,7 @@ export const constructionDailyLogRepository = {
             dailyQty: w.dailyQty,
             accumulatedQty: w.accumulatedQty,
             remark: w.remark,
+            pccesItemId: w.pccesItemId ?? null,
           })),
         })
       }
@@ -244,6 +250,43 @@ export const constructionDailyLogRepository = {
     })
 
     return true
+  },
+
+  /**
+   * 同一 pccesItemId、同專案、填表日期早於 logDate 之 dailyQty 加總（不含當日其他日誌）。
+   * excludeLogId：更新日誌時排除自身，避免重複計入舊稿。
+   */
+  async sumDailyQtyByPccesItemsBeforeLogDate(
+    projectId: string,
+    pccesItemIds: string[],
+    logDate: Date,
+    excludeLogId?: string
+  ): Promise<Map<string, Prisma.Decimal>> {
+    const map = new Map<string, Prisma.Decimal>()
+    for (const id of pccesItemIds) {
+      map.set(id, new Prisma.Decimal(0))
+    }
+    if (pccesItemIds.length === 0) return map
+
+    const groups = await prisma.constructionDailyLogWorkItem.groupBy({
+      by: ['pccesItemId'],
+      where: {
+        pccesItemId: { in: pccesItemIds },
+        log: {
+          projectId,
+          ...notDeleted,
+          ...(excludeLogId ? { id: { not: excludeLogId } } : {}),
+          logDate: { lt: logDate },
+        },
+      },
+      _sum: { dailyQty: true },
+    })
+    for (const g of groups) {
+      if (g.pccesItemId) {
+        map.set(g.pccesItemId, g._sum.dailyQty ?? new Prisma.Decimal(0))
+      }
+    }
+    return map
   },
 
   async softDelete(projectId: string, logId: string, deletedById: string): Promise<boolean> {

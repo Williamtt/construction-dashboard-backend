@@ -88,7 +88,9 @@ model User {
   tenantPermissionTemplates   TenantPermissionTemplate[]
   projectMemberPermissions    ProjectMemberPermission[]
   pccesImportsCreated         PccesImport[]              @relation("PccesImportCreatedBy")
+  pccesImportsApproved        PccesImport[]              @relation("PccesImportApprovedBy")
   constructionDailyLogsCreated ConstructionDailyLog[]     @relation("ConstructionDailyLogCreatedBy")
+  constructionValuationsCreated ConstructionValuation[]   @relation("ConstructionValuationCreatedBy")
 
   @@index([email])
 }
@@ -398,6 +400,7 @@ model Project {
   projectMemberPermissions              ProjectMemberPermission[]
   pccesImports                          PccesImport[]
   constructionDailyLogs                 ConstructionDailyLog[]
+  constructionValuations                ConstructionValuation[]
 }
 
 // ---------- 圖說管理（專案內樹狀：folder=分類、leaf=圖說項；版本用 Attachment category=drawing_revision, businessId=leafId）----------
@@ -535,6 +538,9 @@ model PccesImport {
   attachmentId   String?   @map("attachment_id") // 原始 XML 歸檔（選用）
   itemCount      Int       @default(0) @map("item_count")
   generalCount   Int       @default(0) @map("general_count")
+  /// 核定後施工日誌始得引用該版工項；null 表示尚未核定
+  approvedAt     DateTime? @map("approved_at")
+  approvedById   String?   @map("approved_by_id")
   createdAt      DateTime  @default(now()) @map("created_at")
   createdById    String    @map("created_by_id")
   deletedAt      DateTime? @map("deleted_at")
@@ -542,11 +548,13 @@ model PccesImport {
 
   project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdBy  User        @relation("PccesImportCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy User?       @relation("PccesImportApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
   attachment Attachment? @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
   items      PccesItem[]
 
   @@unique([projectId, version])
   @@index([projectId])
+  @@index([projectId, approvedAt])
   @@index([createdAt(sort: Desc)])
   @@map("pcces_imports")
 }
@@ -572,6 +580,8 @@ model PccesItem {
   deletedById    String?   @map("deleted_by_id")
 
   import PccesImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  dailyLogWorkItems ConstructionDailyLogWorkItem[]
+  constructionValuationLines ConstructionValuationLine[]
 
   @@unique([importId, itemKey])
   @@index([importId])
@@ -647,6 +657,8 @@ model ConstructionDailyLogWorkItem {
   id           String  @id @default(cuid())
   logId        String  @map("log_id")
   sortOrder    Int     @default(0) @map("sort_order")
+  /// 綁定 PCCES general 列時供累計聚合（§4.1）；手填列為 null
+  pccesItemId  String? @map("pcces_item_id")
   workItemName String  @map("work_item_name")
   unit         String
   contractQty  Decimal @map("contract_qty") @db.Decimal(18, 4)
@@ -654,9 +666,11 @@ model ConstructionDailyLogWorkItem {
   accumulatedQty Decimal @map("accumulated_qty") @db.Decimal(18, 4)
   remark       String  @default("")
 
-  log ConstructionDailyLog @relation(fields: [logId], references: [id], onDelete: Cascade)
+  log       ConstructionDailyLog @relation(fields: [logId], references: [id], onDelete: Cascade)
+  pccesItem PccesItem?           @relation(fields: [pccesItemId], references: [id], onDelete: SetNull)
 
   @@index([logId])
+  @@index([pccesItemId])
   @@map("construction_daily_log_work_items")
 }
 
@@ -694,6 +708,60 @@ model ConstructionDailyLogPersonnelEquipment {
 
   @@index([logId])
   @@map("construction_daily_log_personnel_equipment")
+}
+
+/// 專案估驗計價主檔（每次估驗一筆；明細為快照，可綁定 PCCES general 工項）
+model ConstructionValuation {
+  id     String @id @default(cuid())
+  /// 專案識別
+  projectId String @map("project_id")
+
+  title         String?   @map("title")
+  valuationDate DateTime? @map("valuation_date") @db.Date
+  headerRemark  String    @default("") @map("header_remark") @db.Text
+
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedById String?   @map("deleted_by_id")
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("ConstructionValuationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  lines     ConstructionValuationLine[]
+
+  @@index([projectId])
+  @@index([projectId, valuationDate(sort: Desc)])
+  @@map("construction_valuations")
+}
+
+model ConstructionValuationLine {
+  id          String @id @default(cuid())
+  valuationId String @map("valuation_id")
+  sortOrder   Int    @default(0) @map("sort_order")
+  /// 綁定最新核定版 PCCES general 時供跨次估驗加總上限；純手填列為 null
+  pccesItemId String? @map("pcces_item_id")
+
+  itemNo      String  @map("item_no")
+  description String  @map("description") @db.Text
+  unit        String
+  /// （一）契約數量
+  contractQty Decimal @map("contract_qty") @db.Decimal(18, 4)
+  /// 變更後核定數量（有則以此為上限，否則用契約數量）
+  approvedQtyAfterChange Decimal? @map("approved_qty_after_change") @db.Decimal(18, 4)
+  /// （三）單價
+  unitPrice Decimal @map("unit_price") @db.Decimal(18, 4)
+  /// （四）本次估驗數量（手填）
+  currentPeriodQty Decimal @map("current_period_qty") @db.Decimal(18, 4)
+
+  remark String @default("") @map("remark") @db.Text
+
+  valuation   ConstructionValuation @relation(fields: [valuationId], references: [id], onDelete: Cascade)
+  pccesItem   PccesItem?            @relation(fields: [pccesItemId], references: [id], onDelete: SetNull)
+
+  @@index([valuationId])
+  @@index([pccesItemId])
+  @@map("construction_valuation_lines")
 }
 
 // ---------- 氣象／災防警報紀錄（混合：即時顯示＋寫入保留查詢）----------

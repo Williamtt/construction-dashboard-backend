@@ -18,6 +18,8 @@ export const PERMISSION_MODULES = [
   'construction.diary',
   /** PCCES／eTender XML 匯入與工項版本（施工日誌前置資料） */
   'construction.pcces',
+  /** 估驗計價（依 PCCES 工項與歷次估驗加總） */
+  'construction.valuation',
   'construction.defect',
   'construction.photo',
   'repair.overview',

@@ -18,6 +18,8 @@ const newWorkerInsuranceSchema = z.enum(['yes', 'no', 'no_new'])
 const ppeCheckSchema = z.enum(['yes', 'no'])
 
 export const constructionDailyLogWorkItemInputSchema = z.object({
+  /** 綁定最新「已核定」PCCES general 工項時帶入；手填列請省略 */
+  pccesItemId: z.string().min(1).max(128).optional(),
   workItemName: z.string().min(1).max(4000),
   unit: z.string().max(100).default(''),
   contractQty: decimalField,

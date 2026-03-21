@@ -21,6 +21,12 @@ pccesImportsRouter.get(
   asyncHandler(pccesImportController.listItems.bind(pccesImportController))
 )
 
+/** POST .../pcces-imports/:importId/approve — 核定該版（施工日誌始得引用） */
+pccesImportsRouter.post(
+  '/:importId/approve',
+  asyncHandler(pccesImportController.approve.bind(pccesImportController))
+)
+
 /** DELETE .../pcces-imports/:importId — 軟刪除該版匯入與工項 */
 pccesImportsRouter.delete(
   '/:importId',

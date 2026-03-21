@@ -77,6 +77,40 @@ https://construction-dashboard-frontend-ust.vercel.app,https://另一個.vercel.
    若 Railway 專案有提供 one-off run，也可用 **Run Command** 執行上述指令。
 3. 執行成功後，後端 API 即就緒。在 **Settings** → **Networking** 可產生 **Public URL**（例如 `https://xxx.railway.app`），此即後端 API 根網址，稍後給 Vercel 的 `VITE_API_URL` 使用。
 
+#### 1.5.1 Prisma：`P3009` 失敗 migration、或 PCCES 匯入報「column does not exist」
+
+若程式已更新（含 `pcces_imports.approved_at` 等欄位）但資料庫尚未套用對應 migration，匯入 PCCES 時可能出現 **`Invalid ... pccesImport.create()`**、或 **`The column (not available) does not exist`**。另若曾有一次 migration 執行中斷，`_prisma_migrations` 會留下 **失敗紀錄**，導致 **`P3009`**，後續 `migrate deploy` 拒絕繼續。
+
+請在本機或 Railway Shell（已設好 `DATABASE_URL`）依序處理：
+
+1. 查看狀態：`npx prisma migrate status`
+2. 若出現 **failed** 的 `20260323120000_construction_daily_logs`：
+   - 用任意 SQL 客戶端查詢是否已有資料表 **`construction_daily_logs`**（`public` schema）。
+   - **表已存在**（代表該次 migration 實際已套用、只是紀錄卡住）：  
+     `npx prisma migrate resolve --applied "20260323120000_construction_daily_logs"`
+   - **表不存在**（代表該次 migration 未成功）：  
+     `npx prisma migrate resolve --rolled-back "20260323120000_construction_daily_logs"`
+3. 套用其餘待執行 migration：  
+   `npx prisma migrate deploy`
+4. 再執行：`npx prisma generate`（若 CI 未自動跑）
+
+完成後 **`pcces_imports`** 應具備 **`approved_at`、`approved_by_id`**，**`construction_daily_log_work_items`** 應具備 **`pcces_item_id`**（若該 migration 一併尚未套用）。
+
+#### 1.5.2 Prisma：`P2021`／`construction_valuation_lines` does not exist（估驗計價）
+
+若後端已更新、已執行 `prisma generate`，但 **尚未對目前 `DATABASE_URL` 指向的資料庫套用** migration **`20260325100000_construction_valuations`**，呼叫估驗相關 API 時會出現 **`The table public.construction_valuation_lines does not exist`**（Prisma **`P2021`**）。
+
+請在**與後端相同的 `DATABASE_URL`** 環境下執行：
+
+```bash
+npx prisma migrate status   # 應會列出未套用的 20260325100000_construction_valuations
+npx prisma migrate deploy
+```
+
+本機開發可改用：`npm run db:migrate:dev`（會套用並同步 schema）。
+
+套用成功後應存在表 **`construction_valuations`**、**`construction_valuation_lines`**（以及該 migration 內對租戶／專案權限的 backfill）。完成後**重啟後端**。
+
 ### 1.6 小結
 
 - 後端服務從 **prod** 分支部署，根目錄有 `nixpacks.toml` 時會自動執行 `prisma generate` 與 `npm run build`。
