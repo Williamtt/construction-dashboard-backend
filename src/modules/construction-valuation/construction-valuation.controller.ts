@@ -33,6 +33,7 @@ export const constructionValuationController = {
       typeof req.query.excludeValuationId === 'string' && req.query.excludeValuationId.length > 0
         ? req.query.excludeValuationId
         : undefined
+    /** 估驗日：選「當日或之前已生效」之 PCCES 版次（與施工日誌）；日誌累計亦截至該日（含） */
     const asOfDate =
       typeof req.query.asOfDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.asOfDate.trim())
         ? req.query.asOfDate.trim()

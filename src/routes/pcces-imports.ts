@@ -15,6 +15,16 @@ pccesImportsRouter.post(
   asyncHandler(pccesImportController.upload.bind(pccesImportController))
 )
 
+/** GET .../pcces-imports/construction-project-change-list-excel-template — 須在 /:importId 前註冊 */
+pccesImportsRouter.get(
+  '/construction-project-change-list-excel-template',
+  asyncHandler(
+    pccesImportController.downloadConstructionProjectChangeListExcelTemplate.bind(
+      pccesImportController
+    )
+  )
+)
+
 /** GET .../pcces-imports/:importId/items — 須在 /:importId 前註冊 */
 pccesImportsRouter.get(
   '/:importId/items',

@@ -29,6 +29,8 @@ export const constructionValuationLineInputSchema = z.object({
   unitPrice: decimalField,
   currentPeriodQty: decimalField,
   remark: z.string().max(8000).default(''),
+  /** 階層麵包屑（與 PccesItem.path）；儲存時後端會再依綁定工項／手填內容寫入 */
+  path: z.string().max(32000).optional().default(''),
 })
 
 const valuationHeader = {

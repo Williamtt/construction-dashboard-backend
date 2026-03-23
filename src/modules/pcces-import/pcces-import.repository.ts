@@ -2,6 +2,7 @@ import { prisma } from '../../lib/db.js'
 import { notDeleted, softDeleteSet } from '../../shared/soft-delete.js'
 import type { ParsedPccesRow } from './pcces-xml-parser.js'
 import { parentItemKeysWithChildren } from './pcces-item-tree.js'
+import { sortPccesRowsByDisplayPath } from './pcces-path-sort.js'
 
 function utcCalendarDay(d: Date): string {
   const y = d.getUTCFullYear()
@@ -300,6 +301,9 @@ export const pccesImportRepository = {
     })
   },
 
+  /**
+   * 依 path 解析序排序後分頁（同 import 全載入再 sort；超大版次可再改為持久化 sort key）。
+   */
   async listItems(
     importId: string,
     options: { skip: number; take: number; itemKind?: string }
@@ -310,11 +314,10 @@ export const pccesImportRepository = {
         ...notDeleted,
         ...(options.itemKind ? { itemKind: options.itemKind } : {}),
       },
-      orderBy: { itemKey: 'asc' },
-      skip: options.skip,
-      take: options.take,
     })
-    return rows.map((r) => ({
+    const ordered = sortPccesRowsByDisplayPath(rows)
+    const page = ordered.slice(options.skip, options.skip + options.take)
+    return page.map((r) => ({
       id: r.id,
       importId: r.importId,
       itemKey: r.itemKey,

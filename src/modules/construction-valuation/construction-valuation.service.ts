@@ -10,6 +10,11 @@ import {
 } from '../../schemas/construction-valuation.js'
 import { pccesImportRepository } from '../pcces-import/pcces-import.repository.js'
 import {
+  comparePccesDisplayPathOrder,
+  orderPccesValuationBucketEmits,
+  sortPccesRowsByDisplayPath,
+} from '../pcces-import/pcces-path-sort.js'
+import {
   allowsUserEnteredQtyForPccesItemKind,
   isStructuralLeaf,
   parentItemKeysWithChildren,
@@ -42,9 +47,27 @@ function asOfDateUtcForValuation(valuationDateIso: string | null | undefined): D
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
 }
 
+/**
+ * 與施工日誌選版一致：以 UTC 日曆日比對 `approvalEffectiveAt`／`approvedAt`；
+ * 日期字串用正午 UTC 避免日界偏移。
+ */
+function pickerDateForPccesEffective(asOfDateIso?: string | null): Date {
+  const t = asOfDateIso?.trim()
+  if (t && /^\d{4}-\d{2}-\d{2}$/.test(t)) {
+    const d = new Date(`${t}T12:00:00.000Z`)
+    if (!Number.isNaN(d.getTime())) return d
+  }
+  const now = new Date()
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0, 0))
+}
+
 function serializeDecimal(v: { toString(): string } | null | undefined): string | null {
   if (v === null || v === undefined) return null
   return v.toString()
+}
+
+function manualValuationLinePath(itemNo: string, description: string): string {
+  return `${itemNo.trim()} ${description.trim()}`.trim()
 }
 
 function decQty(s: string): Prisma.Decimal {
@@ -81,6 +104,8 @@ function serializeLineComputed(params: {
   lineId: string
   /** PCCES 列：施工日誌截至估驗日之累計完成量；手填列為 null（不限制） */
   logAccumulatedQtyToDate: Prisma.Decimal | null
+  /** 契約階層 path 快照（與 PccesItem.path）；手填為單段 */
+  path: string
 }) {
   const cap = lineCap(params.contractQty, params.approvedQtyAfterChange)
   const current = params.currentPeriodQty
@@ -115,6 +140,7 @@ function serializeLineComputed(params: {
     cumulativeValuationQtyToDate: cumulative.toString(),
     currentPeriodAmount: current.mul(params.unitPrice).toString(),
     cumulativeAmountToDate: cumulative.mul(params.unitPrice).toString(),
+    path: params.path,
   }
 }
 
@@ -147,6 +173,7 @@ function serializeLineWithParentKey(
     remark: l.remark,
     priorBilledQty: prior,
     logAccumulatedQtyToDate: logQty,
+    path: l.path ?? '',
   })
   return {
     ...base,
@@ -174,6 +201,16 @@ async function buildOrderedLinesAndGroups(
 }> {
   type Entry = { sortOrder: number; serialized: SerializedValuationLine; raw: ValuationLineRow }
 
+  function effectiveValuationLinePath(line: ValuationLineRow, idToPathFallback: Map<string, string>): string {
+    const p = line.path?.trim()
+    if (p) return p
+    if (line.pccesItemId) {
+      const fb = idToPathFallback.get(line.pccesItemId)?.trim()
+      if (fb) return fb
+    }
+    return manualValuationLinePath(line.itemNo, line.description)
+  }
+
   const entries: Entry[] = row.lines.map((l) => {
     const prior =
       l.pccesItemId != null
@@ -186,7 +223,27 @@ async function buildOrderedLinesAndGroups(
     }
   })
 
-  const manual = entries.filter((e) => !e.raw.pccesItemId).sort((a, b) => a.sortOrder - b.sortOrder)
+  const idToPathFallback = new Map<string, string>()
+  const pccesIdsForPath = entries
+    .map((e) => e.raw.pccesItemId)
+    .filter((id): id is string => Boolean(id))
+  if (pccesIdsForPath.length > 0) {
+    const pr = await prisma.pccesItem.findMany({
+      where: { id: { in: pccesIdsForPath }, ...notDeleted },
+      select: { id: true, path: true },
+    })
+    for (const r of pr) idToPathFallback.set(r.id, r.path)
+  }
+
+  const sortByStoredPath = (a: Entry, b: Entry) => {
+    const c = comparePccesDisplayPathOrder(
+      effectiveValuationLinePath(a.raw, idToPathFallback),
+      effectiveValuationLinePath(b.raw, idToPathFallback)
+    )
+    return c !== 0 ? c : a.sortOrder - b.sortOrder
+  }
+
+  const manual = entries.filter((e) => !e.raw.pccesItemId).sort(sortByStoredPath)
   const pcces = entries.filter((e) => e.raw.pccesItemId)
 
   if (pcces.length === 0) {
@@ -200,7 +257,7 @@ async function buildOrderedLinesAndGroups(
     pcces.map((e) => e.raw.pccesItem!.importId).filter((id): id is string => Boolean(id))
   )
   if (importIds.size !== 1) {
-    const all = [...entries].sort((a, b) => a.sortOrder - b.sortOrder)
+    const all = [...entries].sort(sortByStoredPath)
     const lines = all.map((e) => e.serialized)
     return {
       lines,
@@ -209,16 +266,19 @@ async function buildOrderedLinesAndGroups(
   }
 
   const importId = [...importIds][0]!
-  const allItems = await prisma.pccesItem.findMany({
+  const allItemsRaw = await prisma.pccesItem.findMany({
     where: { importId, ...notDeleted },
     select: {
       itemKey: true,
+      parentItemKey: true,
       itemKind: true,
       itemNo: true,
       description: true,
       unit: true,
+      path: true,
     },
   })
+  const allItems = sortPccesRowsByDisplayPath(allItemsRaw)
   const byKey = new Map(allItems.map((i) => [i.itemKey, i]))
 
   const parentBuckets = new Map<number, Entry[]>()
@@ -238,8 +298,15 @@ async function buildOrderedLinesAndGroups(
     orphanPcces.push(e)
   }
 
-  const sortedPks = [...parentBuckets.keys()].sort((a, b) => a - b)
-  orphanPcces.sort((a, b) => a.sortOrder - b.sortOrder)
+  const bucketEmits = orderPccesValuationBucketEmits(
+    parentBuckets.keys(),
+    allItems.map((i) => ({
+      itemKey: i.itemKey,
+      parentItemKey: i.parentItemKey,
+      path: i.path,
+    })),
+  )
+  orphanPcces.sort(sortByStoredPath)
 
   const ordered: SerializedValuationLine[] = []
   const lineGroups: {
@@ -252,10 +319,29 @@ async function buildOrderedLinesAndGroups(
     } | null
     lineStartIndex: number
     lineCount: number
+    showParentRow?: boolean
   }[] = []
 
-  for (const pk of sortedPks) {
-    const arr = (parentBuckets.get(pk) ?? []).sort((a, b) => a.sortOrder - b.sortOrder)
+  for (const em of bucketEmits) {
+    if (em.kind === 'chapterBanner') {
+      const parentRow = byKey.get(em.parentItemKey)
+      if (!parentRow) continue
+      lineGroups.push({
+        parent: {
+          itemNo: parentRow.itemNo,
+          description: parentRow.description,
+          unit: parentRow.unit,
+          currentPeriodAmountSum: '0',
+          cumulativeAmountToDateSum: '0',
+        },
+        lineStartIndex: ordered.length,
+        lineCount: 0,
+        showParentRow: true,
+      })
+      continue
+    }
+    const pk = em.parentItemKey
+    const arr = (parentBuckets.get(pk) ?? []).sort(sortByStoredPath)
     if (arr.length === 0) continue
     const parentRow = byKey.get(pk)
     if (!parentRow) continue
@@ -277,6 +363,7 @@ async function buildOrderedLinesAndGroups(
       },
       lineStartIndex: start,
       lineCount: arr.length,
+      showParentRow: !em.hideParentRow,
     })
   }
 
@@ -385,6 +472,7 @@ async function normalizeValuationBody(
       nextLines.push({
         ...line,
         pccesItemId: undefined,
+        path: manualValuationLinePath(line.itemNo, line.description),
         contractQty: contract.toString(),
         approvedQtyAfterChange: line.approvedQtyAfterChange,
         unitPrice: decQty(line.unitPrice).toString(),
@@ -434,6 +522,7 @@ async function normalizeValuationBody(
       unitPrice: item.unitPrice.toString(),
       currentPeriodQty: current.toString(),
       remark: line.remark,
+      path: item.path,
     })
   }
 
@@ -552,18 +641,23 @@ export const constructionValuationService = {
   },
 
   /**
-   * 估驗計價用：最新核定版**全部**工項於 `rows`，與「PCCES 明細／全部類型」相同 **itemKey 升序**；
-   * 父列與末層欄位一致；`isStructuralLeaf` 為 true 者帶估驗／日誌聚合欄位。
+   * 估驗計價用：**結構與 pccesItemId 為最新核定版**；契約欄位（項次／說明／數量／單價等）依
+   * **估驗日（asOfDate）當日或之前已生效之核定版**覆寫（與施工日誌選版相同）；列順序依 path 解析序。
    */
   async getPccesLinePicker(
     projectId: string,
     user: AuthUser,
     excludeValuationId?: string,
-    /** YYYY-MM-DD；省略則截至今日 UTC */
+    /** YYYY-MM-DD；決定生效 PCCES 版次（與施工日誌）；施工日誌累計算至該日（含）；省略則今日 UTC 正午 */
     asOfDateIso?: string | null
   ) {
     await assertProjectModuleAction(user, projectId, 'construction.valuation', 'read')
+    const pickerDate = pickerDateForPccesEffective(asOfDateIso)
     const latest = await pccesImportRepository.findLatestApprovedImport(projectId)
+    const effective = await pccesImportRepository.findApprovedImportEffectiveOnLogDate(
+      projectId,
+      pickerDate
+    )
     type RowOut = {
       pccesItemId: string
       itemKey: number
@@ -580,12 +674,14 @@ export const constructionValuationService = {
       maxQty: string | null
       logAccumulatedQtyToDate: string | null
       suggestedAvailableQty: string | null
+      /** 最新版樹之階層 path（與 PccesItem）；契約欄位可能來自有效版覆寫 */
+      path: string
     }
     type GroupOut = {
       parent: { itemNo: string; description: string; unit: string; itemKey: number } | null
       children: RowOut[]
     }
-    if (!latest) {
+    if (!latest || !effective) {
       return {
         pccesImport: null as null,
         rows: [] as RowOut[],
@@ -594,9 +690,35 @@ export const constructionValuationService = {
       }
     }
 
-    const allItems = await prisma.pccesItem.findMany({
+    const asOfItems =
+      effective.id === latest.id
+        ? null
+        : await prisma.pccesItem.findMany({
+            where: { importId: effective.id, ...notDeleted },
+            select: {
+              itemKey: true,
+              itemNo: true,
+              description: true,
+              unit: true,
+              quantity: true,
+              unitPrice: true,
+            },
+          })
+    const asOfByItemKey = new Map(
+      (asOfItems ?? []).map((x) => [
+        x.itemKey,
+        {
+          itemNo: x.itemNo,
+          description: x.description,
+          unit: x.unit,
+          quantity: x.quantity,
+          unitPrice: x.unitPrice,
+        },
+      ])
+    )
+
+    const allItemsRaw = await prisma.pccesItem.findMany({
       where: { importId: latest.id, ...notDeleted },
-      orderBy: { itemKey: 'asc' },
       select: {
         id: true,
         itemKey: true,
@@ -607,8 +729,10 @@ export const constructionValuationService = {
         unit: true,
         quantity: true,
         unitPrice: true,
+        path: true,
       },
     })
+    const allItems = sortPccesRowsByDisplayPath(allItemsRaw)
     const parentsWithChildren = parentItemKeysWithChildren(allItems)
     const leafIds = new Set(
       allItems.filter((i) => isStructuralLeaf(i, parentsWithChildren)).map((i) => i.id)
@@ -624,38 +748,42 @@ export const constructionValuationService = {
             excludeValuationId
           )
 
-    const pickerAsOf = asOfDateUtcForValuation(
-      asOfDateIso && asOfDateIso.trim() !== '' ? asOfDateIso : undefined
-    )
     const logMap =
       leafIdList.length === 0
         ? new Map<string, Prisma.Decimal>()
         : await constructionDailyLogRepository.sumDailyQtyByPccesItemsThroughDateInclusive(
             projectId,
             leafIdList,
-            pickerAsOf
+            pickerDate
           )
 
     const rows: RowOut[] = allItems.map((r) => {
+      const snap = asOfByItemKey.get(r.itemKey)
+      const itemNo = snap?.itemNo ?? r.itemNo
+      const desc = snap?.description ?? r.description
+      const unit = snap?.unit ?? r.unit
+      const qty = snap?.quantity ?? r.quantity
+      const price = snap?.unitPrice ?? r.unitPrice
       const isLeaf = leafIds.has(r.id)
-      const cap = r.quantity
+      const cap = qty
       if (!isLeaf) {
         return {
           pccesItemId: r.id,
           itemKey: r.itemKey,
           parentItemKey: r.parentItemKey,
-          itemNo: r.itemNo,
-          description: r.description,
-          unit: r.unit,
+          itemNo,
+          description: desc,
+          unit,
           itemKind: r.itemKind,
-          contractQty: r.quantity.toString(),
+          contractQty: qty.toString(),
           approvedQtyAfterChange: null as string | null,
-          unitPrice: r.unitPrice.toString(),
+          unitPrice: price.toString(),
           isStructuralLeaf: false,
           priorBilledQty: null,
           maxQty: null,
           logAccumulatedQtyToDate: null,
           suggestedAvailableQty: null,
+          path: r.path,
         }
       }
       const prior = priorMap.get(r.id) ?? new Prisma.Decimal(0)
@@ -666,24 +794,26 @@ export const constructionValuationService = {
         pccesItemId: r.id,
         itemKey: r.itemKey,
         parentItemKey: r.parentItemKey,
-        itemNo: r.itemNo,
-        description: r.description,
-        unit: r.unit,
+        itemNo,
+        description: desc,
+        unit,
         itemKind: r.itemKind,
-        contractQty: r.quantity.toString(),
+        contractQty: qty.toString(),
         approvedQtyAfterChange: null as string | null,
-        unitPrice: r.unitPrice.toString(),
+        unitPrice: price.toString(),
         isStructuralLeaf: true,
         priorBilledQty: prior.toString(),
         maxQty: cap.toString(),
         logAccumulatedQtyToDate: logQty.toString(),
         suggestedAvailableQty: (avail.isNeg() ? new Prisma.Decimal(0) : avail).toString(),
+        path: r.path,
       }
     })
 
     const items = rows.filter((x) => x.isStructuralLeaf)
 
-    const importMeta = await pccesImportRepository.findByIdForProject(projectId, latest.id)
+    /** 回傳「契約欄位所依版本」（估驗日有效版），`pccesItemId` 仍屬最新版列 id */
+    const importMeta = await pccesImportRepository.findByIdForProject(projectId, effective.id)
     return {
       pccesImport: importMeta
         ? {
@@ -691,12 +821,14 @@ export const constructionValuationService = {
             version: importMeta.version,
             approvedAt: importMeta.approvedAt?.toISOString() ?? null,
             approvedById: importMeta.approvedById,
+            approvalEffectiveAt: importMeta.approvalEffectiveAt?.toISOString() ?? null,
           }
         : {
-            id: latest.id,
-            version: latest.version,
+            id: effective.id,
+            version: effective.version,
             approvedAt: null as string | null,
             approvedById: null as string | null,
+            approvalEffectiveAt: null as string | null,
           },
       rows,
       groups: [] as GroupOut[],

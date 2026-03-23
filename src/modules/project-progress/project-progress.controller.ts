@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import { AppError } from '../../shared/errors.js'
+import { PROGRESS_PLAN_EXCEL_TEMPLATE_FILE } from '../../lib/resource-paths.js'
 import { fileService } from '../file/file.service.js'
 import { FILE_CATEGORY_PROGRESS_PLAN_IMPORT } from '../../constants/file.js'
 import { projectProgressService } from './project-progress.service.js'
@@ -94,6 +95,20 @@ export const projectProgressController = {
     const projectId = getProjectId(req)
     const data = await projectProgressService.listPlanUploads(projectId, req.user)
     res.status(200).json({ data })
+  },
+
+  /** GET：內建 `resources/templates/progress_template.xlsx` */
+  async downloadPlanExcelTemplate(req: Request, res: Response) {
+    if (!req.user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
+    const projectId = getProjectId(req)
+    const buf = await projectProgressService.getProgressPlanExcelTemplateBuffer(projectId, req.user)
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader('Content-Disposition', `attachment; filename="${PROGRESS_PLAN_EXCEL_TEMPLATE_FILE}"`)
+    res.setHeader('Content-Length', String(buf.length))
+    res.send(buf)
   },
 
   async duplicatePlan(req: Request, res: Response) {

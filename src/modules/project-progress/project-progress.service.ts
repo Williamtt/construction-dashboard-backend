@@ -1,6 +1,8 @@
+import fs from 'node:fs/promises'
 import { Prisma } from '@prisma/client'
 import { AppError } from '../../shared/errors.js'
 import { prisma } from '../../lib/db.js'
+import { progressPlanExcelTemplateAbsPath } from '../../lib/resource-paths.js'
 import { notDeleted } from '../../shared/soft-delete.js'
 import { FILE_CATEGORY_PROGRESS_PLAN_IMPORT } from '../../constants/file.js'
 import { assertProjectModuleAction } from '../project-permission/project-permission.service.js'
@@ -452,5 +454,22 @@ export const projectProgressService = {
     }
 
     return { ok: true as const }
+  },
+
+  /** 內建進度表 Excel 樣板（`resources/templates/progress_template.xlsx`，部署時 cwd 為專案根即可讀取） */
+  async getProgressPlanExcelTemplateBuffer(projectId: string, user: AuthUser): Promise<Buffer> {
+    await assertCanAccessProject(user, projectId)
+    await assertProjectModuleAction(user, projectId, 'construction.progress', 'read')
+    const abs = progressPlanExcelTemplateAbsPath()
+    try {
+      return await fs.readFile(abs)
+    } catch (e: unknown) {
+      const code =
+        e && typeof e === 'object' && 'code' in e ? (e as NodeJS.ErrnoException).code : undefined
+      if (code === 'ENOENT') {
+        throw new AppError(404, 'NOT_FOUND', '進度表樣板檔尚未提供，請聯絡管理員')
+      }
+      throw new AppError(500, 'INTERNAL_ERROR', '讀取樣板失敗')
+    }
   },
 }

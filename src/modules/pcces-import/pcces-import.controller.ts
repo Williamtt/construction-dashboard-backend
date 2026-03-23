@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import { AppError } from '../../shared/errors.js'
+import { CONSTRUCTION_PROJECT_CHANGE_LIST_EXCEL_TEMPLATE_FILE } from '../../lib/resource-paths.js'
 import { pccesExcelApplyBodySchema } from '../../schemas/pcces-excel-apply.js'
 import { pccesImportPatchBodySchema } from '../../schemas/pcces-import-patch.js'
 import { parsePageLimit } from '../../shared/utils/pagination.js'
@@ -22,6 +23,26 @@ function getImportId(req: Request): string {
 }
 
 export const pccesImportController = {
+  /** GET：內建 `resources/templates/construction_project_change_list.xlsx` */
+  async downloadConstructionProjectChangeListExcelTemplate(req: Request, res: Response) {
+    if (!req.user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
+    const projectId = getProjectId(req)
+    const buf = await pccesImportService.getConstructionProjectChangeListExcelTemplateBuffer(
+      projectId,
+      req.user
+    )
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${CONSTRUCTION_PROJECT_CHANGE_LIST_EXCEL_TEMPLATE_FILE}"`
+    )
+    res.setHeader('Content-Length', String(buf.length))
+    res.send(buf)
+  },
+
   async list(req: Request, res: Response) {
     if (!req.user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
     const projectId = getProjectId(req)

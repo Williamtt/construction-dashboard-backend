@@ -1,9 +1,11 @@
 import type { Prisma, PccesItem } from '@prisma/client'
+import fs from 'fs/promises'
 import { AppError } from '../../shared/errors.js'
 import { assertProjectModuleAction } from '../project-permission/project-permission.service.js'
 import { fileService } from '../file/file.service.js'
 import { FILE_CATEGORY_PCCES_XML } from '../../constants/file.js'
 import { prisma } from '../../lib/db.js'
+import { constructionProjectChangeListExcelTemplateAbsPath } from '../../lib/resource-paths.js'
 import { notDeleted } from '../../shared/soft-delete.js'
 import type { PccesExcelApplyBody } from '../../schemas/pcces-excel-apply.js'
 import { parsePccesXmlBuffer, type ParsedPccesRow } from './pcces-xml-parser.js'
@@ -15,6 +17,7 @@ import {
 } from './pcces-item-tree.js'
 import type { PccesImportPatchBody } from '../../schemas/pcces-import-patch.js'
 import { pccesImportRepository } from './pcces-import.repository.js'
+import { sortPccesRowsByDisplayPath } from './pcces-path-sort.js'
 
 /** 明細頁一次載入全部工項之上限（避免超大型 XML 拖垮記憶體） */
 const PCCES_ITEMS_LIST_ALL_MAX = 100_000
@@ -111,6 +114,25 @@ function serializeImport(row: {
 }
 
 export const pccesImportService = {
+  /** 內建工程變更清單 Excel 樣板（`resources/templates/construction_project_change_list.xlsx`） */
+  async getConstructionProjectChangeListExcelTemplateBuffer(
+    projectId: string,
+    user: AuthUser
+  ): Promise<Buffer> {
+    await assertProjectModuleAction(user, projectId, 'construction.pcces', 'read')
+    const abs = constructionProjectChangeListExcelTemplateAbsPath()
+    try {
+      return await fs.readFile(abs)
+    } catch (e: unknown) {
+      const code =
+        e && typeof e === 'object' && 'code' in e ? (e as NodeJS.ErrnoException).code : undefined
+      if (code === 'ENOENT') {
+        throw new AppError(404, 'NOT_FOUND', '工程變更清單樣板檔尚未提供，請聯絡管理員')
+      }
+      throw new AppError(500, 'INTERNAL_ERROR', '讀取樣板失敗')
+    }
+  },
+
   async list(projectId: string, user: AuthUser) {
     await assertProjectModuleAction(user, projectId, 'construction.pcces', 'read')
     const rows = await pccesImportRepository.listByProject(projectId)
@@ -312,10 +334,10 @@ export const pccesImportService = {
     const baseParent = await pccesImportRepository.findByIdForProject(projectId, baseImportId)
     if (!baseParent) throw new AppError(404, 'NOT_FOUND', '找不到該次匯入')
 
-    const baseItems = await prisma.pccesItem.findMany({
+    const baseItemsRaw = await prisma.pccesItem.findMany({
       where: { importId: baseImportId, ...notDeleted },
-      orderBy: { itemKey: 'asc' },
     })
+    const baseItems = sortPccesRowsByDisplayPath(baseItemsRaw)
     if (baseItems.length === 0) {
       throw new AppError(400, 'BAD_REQUEST', '基底匯入沒有工項可複製')
     }
@@ -538,10 +560,10 @@ export const pccesImportService = {
         })
       }
 
-      const allAfter = await tx.pccesItem.findMany({
+      const allAfterRaw = await tx.pccesItem.findMany({
         where: { importId: newImp.id, ...notDeleted },
-        orderBy: { itemKey: 'asc' },
       })
+      const allAfter = sortPccesRowsByDisplayPath(allAfterRaw)
       const parsed = allAfter.map((r) => pccesDbRowToParsed(r))
       applyPccesComputedAmounts(parsed)
       for (const r of parsed) {

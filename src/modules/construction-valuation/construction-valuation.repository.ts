@@ -138,6 +138,7 @@ export const constructionValuationRepository = {
           unitPrice: line.unitPrice,
           currentPeriodQty: line.currentPeriodQty,
           remark: line.remark,
+          path: line.path ?? '',
         })),
       })
       return v
@@ -181,6 +182,7 @@ export const constructionValuationRepository = {
           unitPrice: line.unitPrice,
           currentPeriodQty: line.currentPeriodQty,
           remark: line.remark,
+          path: line.path ?? '',
         })),
       })
     })

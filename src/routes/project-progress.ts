@@ -11,6 +11,11 @@ projectProgressRouter.get(
 )
 
 projectProgressRouter.get(
+  '/plan-uploads/excel-template',
+  asyncHandler(projectProgressController.downloadPlanExcelTemplate.bind(projectProgressController))
+)
+
+projectProgressRouter.get(
   '/plan-uploads',
   asyncHandler(projectProgressController.listPlanUploads.bind(projectProgressController))
 )

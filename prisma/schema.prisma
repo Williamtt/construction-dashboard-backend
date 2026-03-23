@@ -799,6 +799,8 @@ model ConstructionValuationLine {
   currentPeriodQty Decimal @map("current_period_qty") @db.Decimal(18, 4)
 
   remark String @default("") @map("remark") @db.Text
+  /// PCCES 階層麵包屑快照（與 PccesItem.path 格式相同）；供明細排序／顯示；手填列可為單段「項次 說明」
+  path   String @default("") @map("path") @db.Text
 
   valuation   ConstructionValuation @relation(fields: [valuationId], references: [id], onDelete: Cascade)
   pccesItem   PccesItem?            @relation(fields: [pccesItemId], references: [id], onDelete: SetNull)
