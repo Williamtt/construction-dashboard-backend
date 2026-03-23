@@ -369,6 +369,51 @@ export const constructionDailyLogRepository = {
     return map
   },
 
+  /**
+   * 截至填表日（含）之 `dailyQty` 加總，依 itemKey 跨已核定 PCCES 版彙總。
+   * `excludeLogId`：編輯時排除本日誌列，再由呼叫端以 overlay 加回表單目前值。
+   */
+  async sumDailyQtyByItemKeysThroughLogDateInclusive(
+    projectId: string,
+    itemKeys: number[],
+    asOfDateInclusive: Date,
+    excludeLogId?: string
+  ): Promise<Map<number, Prisma.Decimal>> {
+    const uniqueKeys = [...new Set(itemKeys)]
+    const sumByKey = new Map<number, Prisma.Decimal>()
+    for (const k of uniqueKeys) sumByKey.set(k, new Prisma.Decimal(0))
+    if (uniqueKeys.length === 0) return sumByKey
+
+    const { lineageIds, lineageIdToItemKey } = await collectLineageItemsByItemKeys(
+      projectId,
+      uniqueKeys
+    )
+    if (lineageIds.length === 0) return sumByKey
+
+    const groups = await prisma.constructionDailyLogWorkItem.groupBy({
+      by: ['pccesItemId'],
+      where: {
+        pccesItemId: { in: lineageIds },
+        log: {
+          projectId,
+          ...notDeleted,
+          logDate: { lte: asOfDateInclusive },
+          ...(excludeLogId ? { id: { not: excludeLogId } } : {}),
+        },
+      },
+      _sum: { dailyQty: true },
+    })
+
+    for (const g of groups) {
+      if (!g.pccesItemId) continue
+      const key = lineageIdToItemKey.get(g.pccesItemId)
+      if (key === undefined) continue
+      const add = g._sum.dailyQty ?? new Prisma.Decimal(0)
+      sumByKey.set(key, (sumByKey.get(key) ?? new Prisma.Decimal(0)).plus(add))
+    }
+    return sumByKey
+  },
+
   async softDelete(projectId: string, logId: string, deletedById: string): Promise<boolean> {
     const existing = await prisma.constructionDailyLog.findFirst({
       where: { id: logId, projectId, ...notDeleted },

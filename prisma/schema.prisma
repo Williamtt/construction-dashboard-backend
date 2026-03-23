@@ -402,6 +402,8 @@ model Project {
   pccesImports                          PccesImport[]
   constructionDailyLogs                 ConstructionDailyLog[]
   constructionValuations                ConstructionValuation[]
+  progressPlans                         ProgressPlan[]
+  progressActuals                       ProgressActual[]
 }
 
 // ---------- 圖說管理（專案內樹狀：folder=分類、leaf=圖說項；版本用 Attachment category=drawing_revision, businessId=leafId）----------
@@ -544,6 +546,8 @@ model PccesImport {
   /// 核定後施工日誌始得引用該版工項；null 表示尚未核定
   approvedAt     DateTime? @map("approved_at")
   approvedById   String?   @map("approved_by_id")
+  /// 施工日誌依「填表日」選版時，以此時間之 UTC 日曆日與版次比對；未填則以 approvedAt 之日為生效日
+  approvalEffectiveAt DateTime? @map("approval_effective_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   createdById    String    @map("created_by_id")
   deletedAt      DateTime? @map("deleted_at")
@@ -802,6 +806,73 @@ model ConstructionValuationLine {
   @@index([valuationId])
   @@index([pccesItemId])
   @@map("construction_valuation_lines")
+}
+
+/// 進度管理：計畫版本（S-curve／變更時間點）
+model ProgressPlan {
+  id                String    @id @default(cuid())
+  projectId         String    @map("project_id")
+  version           Int
+  label             String
+  reason            String?   @db.Text
+  effectiveFromDate DateTime  @map("effective_from_date") @db.Date
+  effectiveFromIdx  Int       @map("effective_from_idx")
+  extraWeeks        Int       @default(0) @map("extra_weeks")
+  isBaseline        Boolean   @default(false) @map("is_baseline")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+  deletedById       String?   @map("deleted_by_id")
+
+  project Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  entries ProgressPlanEntry[]
+
+  /// (projectId, version) 唯一約束見 migration：partial unique WHERE deleted_at IS NULL
+  @@index([projectId])
+  @@index([projectId, version])
+  @@map("progress_plans")
+}
+
+/// 進度管理：各週計畫值（本期預定 %；累計可來自 Excel 第 3 欄，否則由後端依本期加總）
+model ProgressPlanEntry {
+  id                  String    @id @default(cuid())
+  planId              String    @map("plan_id")
+  periodDate          DateTime  @map("period_date") @db.Date
+  periodIndex         Int       @map("period_index")
+  periodProgress      Decimal?  @map("period_progress") @db.Decimal(10, 3)
+  cumulativeProgress Decimal?  @map("cumulative_progress") @db.Decimal(10, 3)
+  isLocked           Boolean   @default(false) @map("is_locked")
+  isExtended         Boolean   @default(false) @map("is_extended")
+  deletedAt          DateTime? @map("deleted_at")
+  deletedById        String?   @map("deleted_by_id")
+
+  plan ProgressPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, periodDate])
+  @@index([planId])
+  @@map("progress_plan_entries")
+}
+
+/// 進度管理：實際進度（本期／累計實際 % 皆手填）
+model ProgressActual {
+  id                         String    @id @default(cuid())
+  projectId                  String    @map("project_id")
+  periodDate                 DateTime  @map("period_date") @db.Date
+  periodIndex                Int       @map("period_index")
+  periodProgressPercent      Decimal?  @map("period_progress_percent") @db.Decimal(10, 3)
+  cumulativeProgressPercent  Decimal?  @map("cumulative_progress_percent") @db.Decimal(10, 3)
+  source                String    @default("manual") @map("source")
+  note                  String?   @db.Text
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  deletedAt             DateTime? @map("deleted_at")
+  deletedById           String?   @map("deleted_by_id")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, periodDate])
+  @@index([projectId])
+  @@map("progress_actuals")
 }
 
 // ---------- 氣象／災防警報紀錄（混合：即時顯示＋寫入保留查詢）----------

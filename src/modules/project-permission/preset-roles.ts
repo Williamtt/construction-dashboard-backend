@@ -51,6 +51,7 @@ export const PRESET_TEMPLATES: Record<
       'construction.diary',
       'construction.pcces',
       'construction.valuation',
+      'construction.progress',
       'construction.photo',
     ] as const
     for (const m of full) {

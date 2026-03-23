@@ -7,6 +7,7 @@ import { storage } from '../../lib/storage.js'
 import {
   FILE_CATEGORY_PHOTO,
   FILE_CATEGORY_PCCES_XML,
+  FILE_CATEGORY_PROGRESS_PLAN_IMPORT,
   UPLOAD_MAX_FILE_SIZE_DEFAULT_BYTES,
 } from '../../constants/file.js'
 import { prisma } from '../../lib/db.js'
@@ -34,6 +35,8 @@ async function ensureProjectFile(
     await assertProjectModuleAction(user, projectId, 'construction.photo', action)
   } else if (category === FILE_CATEGORY_PCCES_XML) {
     await assertProjectModuleAction(user, projectId, 'construction.pcces', action)
+  } else if (category === FILE_CATEGORY_PROGRESS_PLAN_IMPORT) {
+    await assertProjectModuleAction(user, projectId, 'construction.progress', action)
   } else {
     await assertProjectModuleAction(user, projectId, 'construction.upload', action)
   }

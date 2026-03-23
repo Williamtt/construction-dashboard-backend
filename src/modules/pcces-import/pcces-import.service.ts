@@ -13,6 +13,7 @@ import {
   allowsUserEnteredQtyForPccesItemKind,
   parentItemKeysWithChildren,
 } from './pcces-item-tree.js'
+import type { PccesImportPatchBody } from '../../schemas/pcces-import-patch.js'
 import { pccesImportRepository } from './pcces-import.repository.js'
 
 /** 明細頁一次載入全部工項之上限（避免超大型 XML 拖垮記憶體） */
@@ -87,6 +88,7 @@ function serializeImport(row: {
   generalCount: number
   approvedAt: Date | null
   approvedById: string | null
+  approvalEffectiveAt: Date | null
   createdAt: Date
   createdById: string
 }) {
@@ -102,6 +104,7 @@ function serializeImport(row: {
     generalCount: row.generalCount,
     approvedAt: row.approvedAt?.toISOString() ?? null,
     approvedById: row.approvedById,
+    approvalEffectiveAt: row.approvalEffectiveAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     createdById: row.createdById,
   }
@@ -241,18 +244,27 @@ export const pccesImportService = {
     return serializeImport(withAtt ?? created)
   },
 
-  async patchVersionLabel(
-    projectId: string,
-    importId: string,
-    user: AuthUser,
-    versionLabel: string
-  ) {
+  async patch(projectId: string, importId: string, user: AuthUser, body: PccesImportPatchBody) {
     await assertProjectModuleAction(user, projectId, 'construction.pcces', 'update')
     const row = await pccesImportRepository.findByIdForProject(projectId, importId)
     if (!row) throw new AppError(404, 'NOT_FOUND', '找不到該次匯入')
-    const t = versionLabel.trim()
-    const next: string | null = t === '' ? null : t
-    const ok = await pccesImportRepository.updateVersionLabel(projectId, importId, next)
+    const patch: { versionLabel?: string | null; approvalEffectiveAt?: Date | null } = {}
+    if (body.versionLabel !== undefined) {
+      const t = body.versionLabel.trim()
+      patch.versionLabel = t === '' ? null : t
+    }
+    if (body.approvalEffectiveAt !== undefined) {
+      if (body.approvalEffectiveAt === null) {
+        patch.approvalEffectiveAt = null
+      } else {
+        const d = new Date(body.approvalEffectiveAt)
+        if (Number.isNaN(d.getTime())) {
+          throw new AppError(400, 'VALIDATION_ERROR', '核定生效時間無效')
+        }
+        patch.approvalEffectiveAt = d
+      }
+    }
+    const ok = await pccesImportRepository.patchImport(projectId, importId, patch)
     if (!ok) throw new AppError(404, 'NOT_FOUND', '找不到該次匯入')
     const updated = await pccesImportRepository.findByIdForProject(projectId, importId)
     if (!updated) throw new AppError(500, 'INTERNAL_ERROR', '更新後讀取失敗')

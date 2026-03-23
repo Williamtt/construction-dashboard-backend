@@ -29,7 +29,25 @@ export const constructionDailyLogController = {
   async defaults(req: Request, res: Response) {
     if (!req.user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
     const projectId = getProjectId(req)
-    const data = await constructionDailyLogService.getFormDefaults(projectId, req.user)
+    const logDateQ = req.query.logDate
+    const logDateIso =
+      typeof logDateQ === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(logDateQ) ? logDateQ : undefined
+    const data = await constructionDailyLogService.getFormDefaults(projectId, req.user, logDateIso)
+    res.status(200).json({ data })
+  },
+
+  async progressPlanKnots(req: Request, res: Response) {
+    if (!req.user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
+    const projectId = getProjectId(req)
+    const logDate = req.query.logDate
+    if (typeof logDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(logDate)) {
+      throw new AppError(400, 'BAD_REQUEST', '請提供有效之 logDate（YYYY-MM-DD）')
+    }
+    const data = await constructionDailyLogService.getProgressPlanKnotsForLogDate(
+      projectId,
+      req.user,
+      logDate
+    )
     res.status(200).json({ data })
   },
 
@@ -49,6 +67,17 @@ export const constructionDailyLogController = {
       req.user,
       logDate,
       excludeLogId
+    )
+    res.status(200).json({ data })
+  },
+
+  async previewPccesActualProgress(req: Request, res: Response) {
+    if (!req.user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
+    const projectId = getProjectId(req)
+    const data = await constructionDailyLogService.previewPccesActualProgress(
+      projectId,
+      req.user,
+      req.body
     )
     res.status(200).json({ data })
   },

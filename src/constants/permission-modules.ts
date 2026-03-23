@@ -20,6 +20,8 @@ export const PERMISSION_MODULES = [
   'construction.pcces',
   /** 估驗計價（依 PCCES 工項與歷次估驗加總） */
   'construction.valuation',
+  /** 進度管理（S-curve、計畫版本、實際進度週填） */
+  'construction.progress',
   'construction.defect',
   'construction.photo',
   'repair.overview',

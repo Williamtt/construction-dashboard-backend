@@ -22,6 +22,8 @@ export type PccesImportListRow = {
   generalCount: number
   approvedAt: Date | null
   approvedById: string | null
+  /** 施工日誌選版用生效日曆日來源；null 則以 approvedAt 之日 */
+  approvalEffectiveAt: Date | null
   createdAt: Date
   createdById: string
 }
@@ -152,6 +154,7 @@ export const pccesImportRepository = {
       generalCount: created.generalCount,
       approvedAt: created.approvedAt,
       approvedById: created.approvedById,
+      approvalEffectiveAt: created.approvalEffectiveAt,
       createdAt: created.createdAt,
       createdById: created.createdById,
     }
@@ -184,6 +187,7 @@ export const pccesImportRepository = {
         generalCount: c.generalCount,
         approvedAt: r.approvedAt,
         approvedById: r.approvedById,
+        approvalEffectiveAt: r.approvalEffectiveAt,
         createdAt: r.createdAt,
         createdById: r.createdById,
       }
@@ -201,8 +205,8 @@ export const pccesImportRepository = {
   },
 
   /**
-   * 在 **填表日**（UTC 日曆天）當日或之前已完成核定之匯入中，取 **version 最大** 者。
-   * 例：3/22 核定新版後，填表日 3/21 仍對應舊版；填表日 3/22 起對應含當日核定之新版。
+   * 在 **填表日**（UTC 日曆天）當日或之前已「生效」之核定匯入中，取 **version 最大** 者。
+   * 生效日＝`approvalEffectiveAt` 之 UTC 日曆日，未填則為 `approvedAt` 之日。
    */
   async findApprovedImportEffectiveOnLogDate(
     projectId: string,
@@ -212,12 +216,13 @@ export const pccesImportRepository = {
     const rows = await prisma.pccesImport.findMany({
       where: { projectId, approvedAt: { not: null }, ...notDeleted },
       orderBy: { version: 'desc' },
-      select: { id: true, version: true, approvedAt: true },
+      select: { id: true, version: true, approvedAt: true, approvalEffectiveAt: true },
     })
     for (const r of rows) {
       const a = r.approvedAt
       if (!a) continue
-      if (utcCalendarDay(a) <= logDay) {
+      const effectiveInstant = r.approvalEffectiveAt ?? a
+      if (utcCalendarDay(effectiveInstant) <= logDay) {
         return { id: r.id, version: r.version }
       }
     }
@@ -260,19 +265,24 @@ export const pccesImportRepository = {
       generalCount: c.generalCount,
       approvedAt: r.approvedAt,
       approvedById: r.approvedById,
+      approvalEffectiveAt: r.approvalEffectiveAt,
       createdAt: r.createdAt,
       createdById: r.createdById,
     }
   },
 
-  async updateVersionLabel(
+  async patchImport(
     projectId: string,
     importId: string,
-    versionLabel: string | null
+    patch: { versionLabel?: string | null; approvalEffectiveAt?: Date | null }
   ): Promise<boolean> {
+    const data: { versionLabel?: string | null; approvalEffectiveAt?: Date | null } = {}
+    if ('versionLabel' in patch) data.versionLabel = patch.versionLabel
+    if ('approvalEffectiveAt' in patch) data.approvalEffectiveAt = patch.approvalEffectiveAt
+    if (Object.keys(data).length === 0) return false
     const r = await prisma.pccesImport.updateMany({
       where: { id: importId, projectId, ...notDeleted },
-      data: { versionLabel },
+      data,
     })
     return r.count > 0
   },

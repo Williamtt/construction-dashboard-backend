@@ -56,12 +56,7 @@ export const pccesImportController = {
       const msg = parsed.error.errors[0]?.message ?? '欄位驗證失敗'
       throw new AppError(400, 'VALIDATION_ERROR', msg)
     }
-    const data = await pccesImportService.patchVersionLabel(
-      projectId,
-      importId,
-      req.user,
-      parsed.data.versionLabel
-    )
+    const data = await pccesImportService.patch(projectId, importId, req.user, parsed.data)
     res.status(200).json({ data })
   },
 

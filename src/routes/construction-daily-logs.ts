@@ -10,9 +10,21 @@ constructionDailyLogsRouter.get(
 )
 
 constructionDailyLogsRouter.get(
+  '/progress-plan-knots',
+  asyncHandler(constructionDailyLogController.progressPlanKnots.bind(constructionDailyLogController))
+)
+
+constructionDailyLogsRouter.get(
   '/pcces-work-items',
   asyncHandler(
     constructionDailyLogController.pccesWorkItemPicker.bind(constructionDailyLogController)
+  )
+)
+
+constructionDailyLogsRouter.post(
+  '/preview-pcces-actual-progress',
+  asyncHandler(
+    constructionDailyLogController.previewPccesActualProgress.bind(constructionDailyLogController)
   )
 )
 
