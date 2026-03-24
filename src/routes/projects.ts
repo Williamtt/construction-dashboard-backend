@@ -17,6 +17,10 @@ import { defectImprovementsRouter } from './defect-improvements.js'
 import { repairRequestsRouter } from './repair-requests.js'
 import { projectSelfInspectionsRouter } from './project-self-inspections.js'
 import { drawingNodesRouter } from './drawing-nodes.js'
+import { pccesImportsRouter } from './pcces-imports.js'
+import { constructionDailyLogsRouter } from './construction-daily-logs.js'
+import { constructionValuationsRouter } from './construction-valuations.js'
+import { projectProgressRouter } from './project-progress.js'
 
 export const projectsRouter = Router()
 
@@ -40,6 +44,18 @@ projectsRouter.use('/:projectId/self-inspections', projectSelfInspectionsRouter)
 
 /** 圖說管理（樹狀分類／圖說項、檔案版本） */
 projectsRouter.use('/:projectId/drawing-nodes', drawingNodesRouter)
+
+/** PCCES／eTender XML 匯入（施工日誌工項來源） */
+projectsRouter.use('/:projectId/pcces-imports', pccesImportsRouter)
+
+/** 公共工程施工日誌（依附表四） */
+projectsRouter.use('/:projectId/construction-daily-logs', constructionDailyLogsRouter)
+
+/** 估驗計價 */
+projectsRouter.use('/:projectId/construction-valuations', constructionValuationsRouter)
+
+/** 進度管理（S-curve、計畫版本、實際週填） */
+projectsRouter.use('/:projectId/progress', projectProgressRouter)
 
 /** WBS 工作分解結構（列表、新增、編輯、刪除、拖移） */
 projectsRouter.use('/:projectId/wbs', wbsRouter)

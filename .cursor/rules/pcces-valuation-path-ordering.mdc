@@ -1,0 +1,63 @@
+---
+description: PCCES path 解析序、估驗桶前序與章節列（前後端須與 frontend 同名規則同步）
+globs:
+  - "**/pcces-path-sort.ts"
+  - "**/construction-valuation/**/*.ts"
+alwaysApply: false
+---
+
+# PCCES path 排序與估驗區段輸出
+
+變更 **`pcces-path-sort.ts`**、**估驗明細排序／`lineGroups`**、或前端 **自 PCCES 帶入** 時必須遵守；**後端與 `src/lib/pcces-path-sort.ts`（前端）邏輯須一致**。
+
+## Path 格式
+
+- 工項 `path` 為「`項次 說明`」以 **` > `**（空格大於空格）串成之多段階層。
+- **不可**對整條 path 做純字串排序（例如 `10` 會錯排在 `2` 前）。
+
+## `comparePccesDisplayPathOrder`（逐段比較）
+
+- 將 path 依 **` > `** 切成段，**由淺到深**逐段比較。
+- 每一段：先取**開頭項次**再取說明尾段：
+  - **阿拉伯數字**（含全形 `０`–`９`）連續前綴 → 數值序。
+  - **複合中文數字**：`十`～`十九`、`二十`～`九十九`（`[一二…九]十[一二…九]?`）。
+  - **對照表單字**（`壹…玖`、`一…九`）；若項次與說明**黏接**（如 `一工程費`），只取第一字當項次，其餘為說明。
+  - 最後才退回「第一個空白前的 `\S+`」。
+- 項次比完比說明尾段（`zh-Hant`）；再比整段字串作 tie-break。
+- **前綴較短者較小**：僅在「同一組 path 長度比較」語意下使用；**估驗桶排序勿單靠父 path 長度**（見下）。
+
+## `minPccesDisplayPath`
+
+- 同一 `parentItemKey` 桶內多筆葉子 path 取 **display 序最小**者。
+- 用途：說明「桶內代表 path」；**不可**單獨作為「跨桶」唯一排序鍵（會與樹狀層次衝突）。
+
+## `orderPccesValuationBucketEmits`（估驗／帶入：桶的輸出順序）
+
+- 輸入：`parentItemKey` 桶的集合 + **該版 PCCES 全樹**列（至少含 `itemKey`、`parentItemKey`、`path`），用 `parentItemKey` 建 **子節點表**。
+- 對每個桶的 `parentItemKey` 在樹上做 **DFS 前序**：
+  1. 子節點依 **`comparePccesDisplayPathOrder(子列.path, …)`** 排序（tie-break `itemKey`）。
+  2. 僅遞迴「子樹內仍有桶」的節點。
+  3. 若目前節點**本身有桶**（直屬葉），在處理完上述子樹**之後**再輸出該桶。
+- **章節標題列（`chapterBanner`）**：若節點 **`path` 分段數為 1**（頂層章節，如「壹 發包工程費」），且**同時**存在「更深子樹的桶」與「本節點直屬葉桶」，則在遞迴子樹**之前**先輸出一筆 **僅父列、0 筆明細**的 emit，讓章節列固定在最上。
+- **直屬葉桶**若前綴已有 `chapterBanner`：後續同節點的 **section** emit 應帶 **`hideParentRow: true`**，避免重複第二列相同父階。
+
+## 後端 `buildOrderedLinesAndGroups`
+
+- 載入同版 `PccesItem` 時需含 **`parentItemKey`** 以建樹。
+- `lineGroups` 依 **`orderPccesValuationBucketEmits`** 順序組裝；`chapterBanner` → `lineCount: 0`、金額加總為 0。
+- 可選欄位 **`showParentRow`**：`false` 表示 API 仍帶該段 `parent` 加總語意，但 **UI 不重複畫父列**（與前段章節標題同節點時）。
+
+## 與前端同步
+
+- 前端 **`ConstructionValuationFormView`** 的「自 PCCES 帶入」須使用同一 **`orderPccesValuationBucketEmits`**（`@/lib/pcces-path-sort`）。
+- **`GroupSection.showSectionParentRow`** 對應 **`showParentRow !== false`**；扁平表 **`valuationTableRows`** 在 `showSectionParentRow === false` 時**不渲染父列**。
+- **`parentItemKey === null` 的葉**：無法入樹桶時，另排一段 **`parent: null`** 區塊（通常置於樹狀區段之後）。
+
+## 檔案位置
+
+- 後端：`src/modules/pcces-import/pcces-path-sort.ts`、`src/modules/construction-valuation/construction-valuation.service.ts`（`buildOrderedLinesAndGroups`）。
+- 前端：`src/lib/pcces-path-sort.ts`、`src/views/construction/ConstructionValuationFormView.vue`、`src/api/construction-valuations.ts`（`ConstructionValuationLineGroupDto.showParentRow`）。
+
+## 調整頂層章節條件時
+
+- 若實務上「頂層章節」**不一定**是 `path` 單段，可改為以 **`parentItemKey == null`**（或兩者組合）觸發 `chapterBanner`，但須**前後端一併**修改並補測。

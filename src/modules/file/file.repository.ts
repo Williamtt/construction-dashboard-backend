@@ -163,6 +163,19 @@ export const fileRepository = {
     return r._sum.fileSize ?? 0
   },
 
+  /** 依 businessId（如進度計畫 id）軟刪專案內同類別附件 */
+  async softDeleteByProjectBusinessAndCategory(
+    projectId: string,
+    businessId: string,
+    category: string,
+    deletedById: string
+  ) {
+    await prisma.attachment.updateMany({
+      where: { projectId, businessId, category, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
+  },
+
   /** 軟刪除；回傳刪前資料供決定是否刪實體檔（storageKey 最後一個 active 參照時） */
   async softDelete(id: string, deletedById: string) {
     const prev = await prisma.attachment.findFirst({
