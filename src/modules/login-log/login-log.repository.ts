@@ -47,13 +47,29 @@ export const loginLogRepository = {
   findMany(args: {
     skip: number
     take: number
-    email?: string
+    /** 關鍵字：Email／IP／失敗原因（子字串，不分大小寫） */
+    q?: string
     success?: boolean
     from?: Date
     to?: Date
   }) {
-    const where: { email?: string; success?: boolean; createdAt?: { gte?: Date; lte?: Date } } = {}
-    if (args.email) where.email = args.email
+    const where: {
+      OR?: Array<{
+        email?: { contains: string; mode: 'insensitive' }
+        ipAddress?: { contains: string; mode: 'insensitive' }
+        failureReason?: { contains: string; mode: 'insensitive' }
+      }>
+      success?: boolean
+      createdAt?: { gte?: Date; lte?: Date }
+    } = {}
+    if (args.q) {
+      const s = args.q
+      where.OR = [
+        { email: { contains: s, mode: 'insensitive' } },
+        { ipAddress: { contains: s, mode: 'insensitive' } },
+        { failureReason: { contains: s, mode: 'insensitive' } },
+      ]
+    }
     if (args.success !== undefined) where.success = args.success
     if (args.from ?? args.to) {
       where.createdAt = {}
@@ -72,9 +88,24 @@ export const loginLogRepository = {
     })
   },
 
-  count(args: { email?: string; success?: boolean; from?: Date; to?: Date }) {
-    const where: { email?: string; success?: boolean; createdAt?: { gte?: Date; lte?: Date } } = {}
-    if (args.email) where.email = args.email
+  count(args: { q?: string; success?: boolean; from?: Date; to?: Date }) {
+    const where: {
+      OR?: Array<{
+        email?: { contains: string; mode: 'insensitive' }
+        ipAddress?: { contains: string; mode: 'insensitive' }
+        failureReason?: { contains: string; mode: 'insensitive' }
+      }>
+      success?: boolean
+      createdAt?: { gte?: Date; lte?: Date }
+    } = {}
+    if (args.q) {
+      const s = args.q
+      where.OR = [
+        { email: { contains: s, mode: 'insensitive' } },
+        { ipAddress: { contains: s, mode: 'insensitive' } },
+        { failureReason: { contains: s, mode: 'insensitive' } },
+      ]
+    }
     if (args.success !== undefined) where.success = args.success
     if (args.from ?? args.to) {
       where.createdAt = {}

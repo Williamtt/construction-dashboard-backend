@@ -27,6 +27,46 @@ export type AuditLogItem = {
   createdAt: Date
 }
 
+type AuditListFilter = {
+  userId?: string
+  action?: string
+  resourceType?: string
+  resourceId?: string
+  tenantId?: string
+  from?: Date
+  to?: Date
+  /** 關鍵字：操作者 Email／姓名、動作、資源類型、資源 ID、IP */
+  search?: string
+}
+
+function buildAuditWhere(args: AuditListFilter): Prisma.AuditLogWhereInput {
+  const where: Prisma.AuditLogWhereInput = {}
+  if (args.userId) where.userId = args.userId
+  if (args.action) where.action = args.action
+  if (args.resourceType) where.resourceType = args.resourceType
+  if (args.resourceId) where.resourceId = args.resourceId
+  if (args.tenantId) where.tenantId = args.tenantId
+  if (args.from ?? args.to) {
+    where.createdAt = {}
+    if (args.from) where.createdAt.gte = args.from
+    if (args.to) where.createdAt.lte = args.to
+  }
+  const s = args.search?.trim()
+  if (s) {
+    where.AND = {
+      OR: [
+        { user: { is: { email: { contains: s, mode: 'insensitive' } } } },
+        { user: { is: { name: { contains: s, mode: 'insensitive' } } } },
+        { action: { contains: s, mode: 'insensitive' } },
+        { resourceType: { contains: s, mode: 'insensitive' } },
+        { resourceId: { contains: s, mode: 'insensitive' } },
+        { ipAddress: { contains: s, mode: 'insensitive' } },
+      ],
+    }
+  }
+  return where
+}
+
 export const auditLogRepository = {
   create(data: {
     userId: string | null
@@ -63,18 +103,9 @@ export const auditLogRepository = {
     tenantId?: string
     from?: Date
     to?: Date
+    search?: string
   }) {
-    const where: Prisma.AuditLogWhereInput = {}
-    if (args.userId) where.userId = args.userId
-    if (args.action) where.action = args.action
-    if (args.resourceType) where.resourceType = args.resourceType
-    if (args.resourceId) where.resourceId = args.resourceId
-    if (args.tenantId) where.tenantId = args.tenantId
-    if (args.from ?? args.to) {
-      where.createdAt = {}
-      if (args.from) where.createdAt.gte = args.from
-      if (args.to) where.createdAt.lte = args.to
-    }
+    const where = buildAuditWhere(args)
     return prisma.auditLog.findMany({
       where,
       skip: args.skip,
@@ -91,20 +122,13 @@ export const auditLogRepository = {
     userId?: string
     action?: string
     resourceType?: string
+    resourceId?: string
     tenantId?: string
     from?: Date
     to?: Date
+    search?: string
   }) {
-    const where: Prisma.AuditLogWhereInput = {}
-    if (args.userId) where.userId = args.userId
-    if (args.action) where.action = args.action
-    if (args.resourceType) where.resourceType = args.resourceType
-    if (args.tenantId) where.tenantId = args.tenantId
-    if (args.from ?? args.to) {
-      where.createdAt = {}
-      if (args.from) where.createdAt.gte = args.from
-      if (args.to) where.createdAt.lte = args.to
-    }
+    const where = buildAuditWhere(args)
     return prisma.auditLog.count({ where })
   },
 

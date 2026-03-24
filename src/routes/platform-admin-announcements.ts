@@ -30,14 +30,26 @@ platformAdminAnnouncementsRouter.get(
     const page = Math.max(1, Number(req.query.page) || 1)
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20))
     const skip = (page - 1) * limit
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+    const where = {
+      ...notDeleted,
+      ...(q
+        ? {
+            OR: [
+              { title: { contains: q, mode: 'insensitive' as const } },
+              { body: { contains: q, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    }
     const [list, total] = await Promise.all([
       prisma.platformAnnouncement.findMany({
-        where: notDeleted,
+        where,
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
       }),
-      prisma.platformAnnouncement.count({ where: notDeleted }),
+      prisma.platformAnnouncement.count({ where }),
     ])
     res.status(200).json({ data: list, meta: { page, limit, total } })
   })

@@ -40,7 +40,7 @@ platformAdminMonitoringRouter.get(
     const page = Math.max(1, Number(req.query.page) || 1)
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20))
     const skip = (page - 1) * limit
-    const email = typeof req.query.email === 'string' ? req.query.email.trim() || undefined : undefined
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() || undefined : undefined
     const successStr = req.query.success
     const success =
       successStr === 'true' ? true : successStr === 'false' ? false : undefined
@@ -48,8 +48,8 @@ platformAdminMonitoringRouter.get(
     const to = parseDate(req.query.to as string)
 
     const [list, total] = await Promise.all([
-      loginLogRepository.findMany({ skip, take: limit, email, success, from, to }),
-      loginLogRepository.count({ email, success, from, to }),
+      loginLogRepository.findMany({ skip, take: limit, q, success, from, to }),
+      loginLogRepository.count({ q, success, from, to }),
     ])
 
     type Row = (typeof list)[number]
@@ -82,12 +82,36 @@ platformAdminMonitoringRouter.get(
     const action = typeof req.query.action === 'string' ? req.query.action.trim() || undefined : undefined
     const resourceType = typeof req.query.resourceType === 'string' ? req.query.resourceType.trim() || undefined : undefined
     const tenantId = typeof req.query.tenantId === 'string' ? req.query.tenantId.trim() || undefined : undefined
+    const search =
+      typeof req.query.search === 'string'
+        ? req.query.search.trim() || undefined
+        : typeof req.query.q === 'string'
+          ? req.query.q.trim() || undefined
+          : undefined
     const from = parseDate(req.query.from as string)
     const to = parseDate(req.query.to as string)
 
     const [list, total] = await Promise.all([
-      auditLogRepository.findMany({ skip, take: limit, userId, action, resourceType, tenantId, from, to }),
-      auditLogRepository.count({ userId, action, resourceType, tenantId, from, to }),
+      auditLogRepository.findMany({
+        skip,
+        take: limit,
+        userId,
+        action,
+        resourceType,
+        tenantId,
+        from,
+        to,
+        search,
+      }),
+      auditLogRepository.count({
+        userId,
+        action,
+        resourceType,
+        tenantId,
+        from,
+        to,
+        search,
+      }),
     ])
 
     type AuditRow = (typeof list)[number]
