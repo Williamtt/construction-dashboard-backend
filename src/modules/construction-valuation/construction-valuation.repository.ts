@@ -15,6 +15,21 @@ function parseDateOnly(iso: string | null | undefined): Date | null {
 }
 
 export const constructionValuationRepository = {
+  /**
+   * 專案內所有未刪除估驗單之明細：本次數量×單價加總（= 各期「本次估驗金額」之總和）。
+   */
+  async sumAllCurrentPeriodAmountsByProject(projectId: string): Promise<Prisma.Decimal> {
+    const rows = await prisma.$queryRaw<{ total: unknown }[]>`
+      SELECT COALESCE(SUM(l.current_period_qty * l.unit_price), 0) AS total
+      FROM construction_valuation_lines l
+      INNER JOIN construction_valuations v ON v.id = l.valuation_id
+      WHERE v.project_id = ${projectId} AND v.deleted_at IS NULL
+    `
+    const raw = rows[0]?.total
+    if (raw == null) return new Prisma.Decimal(0)
+    return new Prisma.Decimal(raw as string | number | Prisma.Decimal)
+  },
+
   async listByProject(projectId: string, args: { skip: number; take: number }) {
     const where = { projectId, ...notDeleted }
     const [total, rows] = await Promise.all([
@@ -98,6 +113,62 @@ export const constructionValuationRepository = {
       if (key === undefined) continue
       const add = g._sum.currentPeriodQty ?? new Prisma.Decimal(0)
       sumByItemKey.set(key, (sumByItemKey.get(key) ?? new Prisma.Decimal(0)).plus(add))
+    }
+
+    for (const id of pccesItemIds) {
+      const key = latestIdToKey.get(id)
+      if (key === undefined) continue
+      map.set(id, sumByItemKey.get(key) ?? new Prisma.Decimal(0))
+    }
+    return map
+  },
+
+  /**
+   * 同專案「其他估驗單」本次估驗**金額**加總（Σ 各列 currentPeriodQty×unitPrice），不含軟刪、不含指定估驗單。
+   * **依 itemKey 跨版**彙總（與 {@link sumCurrentPeriodQtyByPccesItemsExcludingValuation} 相同族譜邏輯），
+   * 回傳鍵為「最新核定版」之 pccesItemId；供（七）本次止累計估驗金額＝歷史快照加總＋本期金額，避免換單價後用新價回乘前期數量。
+   */
+  async sumCurrentPeriodAmountByPccesItemsExcludingValuation(
+    projectId: string,
+    pccesItemIds: string[],
+    excludeValuationId?: string
+  ): Promise<Map<string, Prisma.Decimal>> {
+    const map = new Map<string, Prisma.Decimal>()
+    for (const id of pccesItemIds) {
+      map.set(id, new Prisma.Decimal(0))
+    }
+    if (pccesItemIds.length === 0) return map
+
+    const latestIdToKey = await mapLatestApprovedPccesItemIdsToItemKeys(projectId, pccesItemIds)
+    const itemKeys = [...new Set(latestIdToKey.values())]
+    if (itemKeys.length === 0) return map
+
+    const { lineageIds, lineageIdToItemKey } = await collectLineageItemsByItemKeys(projectId, itemKeys)
+    if (lineageIds.length === 0) return map
+
+    const rawLines = await prisma.constructionValuationLine.findMany({
+      where: {
+        pccesItemId: { in: lineageIds },
+        valuation: {
+          projectId,
+          ...notDeleted,
+          ...(excludeValuationId ? { id: { not: excludeValuationId } } : {}),
+        },
+      },
+      select: {
+        pccesItemId: true,
+        currentPeriodQty: true,
+        unitPrice: true,
+      },
+    })
+
+    const sumByItemKey = new Map<number, Prisma.Decimal>()
+    for (const l of rawLines) {
+      if (!l.pccesItemId) continue
+      const key = lineageIdToItemKey.get(l.pccesItemId)
+      if (key === undefined) continue
+      const amt = l.currentPeriodQty.mul(l.unitPrice)
+      sumByItemKey.set(key, (sumByItemKey.get(key) ?? new Prisma.Decimal(0)).plus(amt))
     }
 
     for (const id of pccesItemIds) {

@@ -90,6 +90,8 @@ function lineCap(
 
 function serializeLineComputed(params: {
   priorBilledQty: Prisma.Decimal
+  /** 他次估驗已請款金額加總（依 itemKey 跨版 Σ 歷史列 qty×單價）；手填列為 0 */
+  priorBilledAmount: Prisma.Decimal
   contractQty: Prisma.Decimal
   approvedQtyAfterChange: Prisma.Decimal | null
   unitPrice: Prisma.Decimal
@@ -130,6 +132,7 @@ function serializeLineComputed(params: {
     currentPeriodQty: current.toString(),
     remark: params.remark,
     priorBilledQty: prior.toString(),
+    priorBilledAmount: params.priorBilledAmount.toString(),
     maxQty: cap.toString(),
     logAccumulatedQtyToDate:
       params.pccesItemId != null && params.logAccumulatedQtyToDate != null
@@ -139,7 +142,8 @@ function serializeLineComputed(params: {
     availableValuationQty: availStr,
     cumulativeValuationQtyToDate: cumulative.toString(),
     currentPeriodAmount: current.mul(params.unitPrice).toString(),
-    cumulativeAmountToDate: cumulative.mul(params.unitPrice).toString(),
+    /** （七）＝歷史請款金額快照加總＋本期（本次數量×本列單價），不用「累計數量×當前單價」以免換版單價改寫前期金額 */
+    cumulativeAmountToDate: params.priorBilledAmount.plus(current.mul(params.unitPrice)).toString(),
     path: params.path,
   }
 }
@@ -155,6 +159,7 @@ type SerializedValuationLine = ReturnType<typeof serializeLineComputed> & {
 function serializeLineWithParentKey(
   l: ValuationLineRow,
   prior: Prisma.Decimal,
+  priorAmount: Prisma.Decimal,
   logByPccesId: Map<string, Prisma.Decimal>
 ): SerializedValuationLine {
   const logQty =
@@ -172,6 +177,7 @@ function serializeLineWithParentKey(
     currentPeriodQty: l.currentPeriodQty,
     remark: l.remark,
     priorBilledQty: prior,
+    priorBilledAmount: priorAmount,
     logAccumulatedQtyToDate: logQty,
     path: l.path ?? '',
   })
@@ -184,6 +190,7 @@ function serializeLineWithParentKey(
 async function buildOrderedLinesAndGroups(
   row: NonNullable<Awaited<ReturnType<typeof constructionValuationRepository.findByIdForProject>>>,
   priorByPccesId: Map<string, Prisma.Decimal>,
+  priorAmountByPccesId: Map<string, Prisma.Decimal>,
   logByPccesId: Map<string, Prisma.Decimal>
 ): Promise<{
   lines: SerializedValuationLine[]
@@ -216,9 +223,13 @@ async function buildOrderedLinesAndGroups(
       l.pccesItemId != null
         ? (priorByPccesId.get(l.pccesItemId) ?? new Prisma.Decimal(0))
         : new Prisma.Decimal(0)
+    const priorAmt =
+      l.pccesItemId != null
+        ? (priorAmountByPccesId.get(l.pccesItemId) ?? new Prisma.Decimal(0))
+        : new Prisma.Decimal(0)
     return {
       sortOrder: l.sortOrder,
-      serialized: serializeLineWithParentKey(l, prior, logByPccesId),
+      serialized: serializeLineWithParentKey(l, prior, priorAmt, logByPccesId),
       raw: l,
     }
   })
@@ -397,7 +408,9 @@ async function buildOrderedLinesAndGroups(
 async function normalizeValuationBody(
   projectId: string,
   excludeValuationId: string | undefined,
-  body: ConstructionValuationCreateInput
+  body: ConstructionValuationCreateInput,
+  /** 更新時：已存在之 PCCES 列 `pccesItemId` → 存檔單價；送出的單價須與之一致（Decimal 相等） */
+  lockPccesUnitPriceByPccesItemId?: Map<string, Prisma.Decimal>
 ): Promise<ConstructionValuationCreateInput> {
   const seen = new Set<string>()
   for (const line of body.lines) {
@@ -498,7 +511,20 @@ async function normalizeValuationBody(
       )
     }
 
-    const contract = item.quantity
+    const lockedUnitPrice = lockPccesUnitPriceByPccesItemId?.get(line.pccesItemId)
+    if (lockedUnitPrice !== undefined) {
+      const submittedPrice = decQty(line.unitPrice)
+      if (!submittedPrice.equals(lockedUnitPrice)) {
+        throw new AppError(
+          400,
+          'VALUATION_UNIT_PRICE_IMMUTABLE',
+          '此估驗單已存檔之 PCCES 明細單價不可變更，以免已請款紀錄與歷史口徑被改寫。若需更正請聯繫管理員。'
+        )
+      }
+    }
+
+    /** 契約／單價／項次說明等一律採請求快照（對齊估驗當下或畫面所見），勿覆寫為最新核定版 */
+    const contract = decQty(line.contractQty)
     const approvedSnap = line.approvedQtyAfterChange ? decQty(line.approvedQtyAfterChange) : null
     const cap = lineCap(contract, approvedSnap)
     const prior = priorMap.get(line.pccesItemId) ?? new Prisma.Decimal(0)
@@ -512,17 +538,20 @@ async function normalizeValuationBody(
       )
     }
 
+    const pathSnap = line.path?.trim() ? line.path.trim() : item.path
+    const itemNoSnap = line.itemNo?.trim() ? line.itemNo.trim() : item.itemNo
+
     nextLines.push({
       pccesItemId: item.id,
-      itemNo: item.itemNo,
-      description: item.description,
-      unit: item.unit,
+      itemNo: itemNoSnap,
+      description: line.description,
+      unit: line.unit,
       contractQty: contract.toString(),
       approvedQtyAfterChange: approvedSnap ? approvedSnap.toString() : null,
-      unitPrice: item.unitPrice.toString(),
+      unitPrice: decQty(line.unitPrice).toString(),
       currentPeriodQty: current.toString(),
       remark: line.remark,
-      path: item.path,
+      path: pathSnap,
     })
   }
 
@@ -550,9 +579,15 @@ function serializeListRow(
 async function serializeDetail(
   row: NonNullable<Awaited<ReturnType<typeof constructionValuationRepository.findByIdForProject>>>,
   priorByPccesId: Map<string, Prisma.Decimal>,
+  priorAmountByPccesId: Map<string, Prisma.Decimal>,
   logByPccesId: Map<string, Prisma.Decimal>
 ) {
-  const { lines, lineGroups } = await buildOrderedLinesAndGroups(row, priorByPccesId, logByPccesId)
+  const { lines, lineGroups } = await buildOrderedLinesAndGroups(
+    row,
+    priorByPccesId,
+    priorAmountByPccesId,
+    logByPccesId
+  )
   return {
     id: row.id,
     projectId: row.projectId,
@@ -572,27 +607,83 @@ async function loadValuationDetail(projectId: string, valuationId: string, user:
   const row = await constructionValuationRepository.findByIdForProject(projectId, valuationId)
   if (!row) throw new AppError(404, 'NOT_FOUND', '找不到估驗計價')
   const pccesIds = row.lines.map((l) => l.pccesItemId).filter((id): id is string => Boolean(id))
-  const priorMap =
-    pccesIds.length === 0
-      ? new Map<string, Prisma.Decimal>()
-      : await constructionValuationRepository.sumCurrentPeriodQtyByPccesItemsExcludingValuation(
-          projectId,
-          pccesIds,
-          valuationId
-        )
   const asOf = asOfDateUtcForValuation(formatDateOnlyUtc(row.valuationDate))
-  const logMap =
+  const [priorMap, priorAmountMap, logMap] =
     pccesIds.length === 0
-      ? new Map<string, Prisma.Decimal>()
-      : await constructionDailyLogRepository.sumDailyQtyByPccesItemsThroughDateInclusive(
-          projectId,
-          pccesIds,
-          asOf
-        )
-  return await serializeDetail(row, priorMap, logMap)
+      ? [
+          new Map<string, Prisma.Decimal>(),
+          new Map<string, Prisma.Decimal>(),
+          new Map<string, Prisma.Decimal>(),
+        ]
+      : await Promise.all([
+          constructionValuationRepository.sumCurrentPeriodQtyByPccesItemsExcludingValuation(
+            projectId,
+            pccesIds,
+            valuationId
+          ),
+          constructionValuationRepository.sumCurrentPeriodAmountByPccesItemsExcludingValuation(
+            projectId,
+            pccesIds,
+            valuationId
+          ),
+          constructionDailyLogRepository.sumDailyQtyByPccesItemsThroughDateInclusive(
+            projectId,
+            pccesIds,
+            asOf
+          ),
+        ])
+  return await serializeDetail(row, priorMap, priorAmountMap, logMap)
 }
 
 export const constructionValuationService = {
+  /**
+   * 估驗列表頁 KPI（與產品定義對齊）：
+   * - **已請款金額**：全專案所有估驗單各期「本次估驗金額」（明細 currentPeriodQty×unitPrice）加總。
+   * - **契約／變更後可計價上限總額**：最新核定 PCCES 之**結構末層** Σ(契約數量×單價)；數量以當日有效版覆寫（與 pcces-lines 選取邏輯一致）。
+   * - **施作可計價金額（供尚未請款）**：同上末層 Σ(min(契約數量, 施工日誌截至今日累計)×單價)。不含純手填估驗列。
+   * - **尚未請款金額**：max(0, 施作可計價 − 已請款)；若純手填已請款大於 PCCES 施作面，則顯示 0。
+   * - **請款進度**：已請款 ÷ 契約上限（>100% 時截斷為 100）；無核定 PCCES 或上限為 0 時為 null。
+   */
+  async getListSummary(projectId: string, user: AuthUser) {
+    await assertProjectModuleAction(user, projectId, 'construction.valuation', 'read')
+    const billedTotal =
+      await constructionValuationRepository.sumAllCurrentPeriodAmountsByProject(projectId)
+    const picker = await constructionValuationService.getPccesLinePicker(
+      projectId,
+      user,
+      undefined,
+      undefined
+    )
+
+    let contractCapTotal = new Prisma.Decimal(0)
+    let workDoneAtPriceTotal = new Prisma.Decimal(0)
+    for (const row of picker.items) {
+      const cap = new Prisma.Decimal(row.maxQty ?? row.contractQty)
+      const log = new Prisma.Decimal(row.logAccumulatedQtyToDate ?? 0)
+      const price = new Prisma.Decimal(row.unitPrice)
+      contractCapTotal = contractCapTotal.plus(cap.mul(price))
+      const qtyForWork = Prisma.Decimal.min(cap, log)
+      workDoneAtPriceTotal = workDoneAtPriceTotal.plus(qtyForWork.mul(price))
+    }
+
+    const unbilledRaw = workDoneAtPriceTotal.minus(billedTotal)
+    const unbilledAmount = unbilledRaw.isNeg() ? new Prisma.Decimal(0) : unbilledRaw
+
+    let billingProgress: number | null = null
+    if (contractCapTotal.gt(0)) {
+      const ratio = billedTotal.div(contractCapTotal).toNumber()
+      billingProgress = Math.min(100, Math.max(0, Math.round(ratio * 1000) / 10))
+    }
+
+    return {
+      contractBillableCapTotal: contractCapTotal.toString(),
+      billedAmountTotal: billedTotal.toString(),
+      workDoneAtPriceTotal: workDoneAtPriceTotal.toString(),
+      unbilledAmount: unbilledAmount.toString(),
+      billingProgress,
+    }
+  },
+
   async list(projectId: string, user: AuthUser, page: number, limit: number) {
     await assertProjectModuleAction(user, projectId, 'construction.valuation', 'read')
     const skip = (page - 1) * limit
@@ -627,7 +718,22 @@ export const constructionValuationService = {
     if (!parsed.success) {
       throw new AppError(400, 'VALIDATION_ERROR', '資料驗證失敗')
     }
-    const normalized = await normalizeValuationBody(projectId, valuationId, parsed.data)
+    const existing = await constructionValuationRepository.findByIdForProject(projectId, valuationId)
+    if (!existing) {
+      throw new AppError(404, 'NOT_FOUND', '找不到估驗計價')
+    }
+    const lockPccesUnitPriceByPccesItemId = new Map<string, Prisma.Decimal>()
+    for (const l of existing.lines) {
+      if (l.pccesItemId) {
+        lockPccesUnitPriceByPccesItemId.set(l.pccesItemId, l.unitPrice)
+      }
+    }
+    const normalized = await normalizeValuationBody(
+      projectId,
+      valuationId,
+      parsed.data,
+      lockPccesUnitPriceByPccesItemId
+    )
     const ok = await constructionValuationRepository.update(projectId, valuationId, normalized)
     if (!ok) throw new AppError(404, 'NOT_FOUND', '找不到估驗計價')
     return loadValuationDetail(projectId, valuationId, user)
@@ -671,6 +777,8 @@ export const constructionValuationService = {
       unitPrice: string
       isStructuralLeaf: boolean
       priorBilledQty: string | null
+      /** 他次估驗已請款金額加總（末層）；與（七）前期部分一致 */
+      priorBilledAmount: string | null
       maxQty: string | null
       logAccumulatedQtyToDate: string | null
       suggestedAvailableQty: string | null
@@ -739,14 +847,21 @@ export const constructionValuationService = {
     )
     const leafIdList = [...leafIds]
 
-    const priorMap =
+    const [priorMap, priorAmountMap] =
       leafIdList.length === 0
-        ? new Map<string, Prisma.Decimal>()
-        : await constructionValuationRepository.sumCurrentPeriodQtyByPccesItemsExcludingValuation(
-            projectId,
-            leafIdList,
-            excludeValuationId
-          )
+        ? [new Map<string, Prisma.Decimal>(), new Map<string, Prisma.Decimal>()]
+        : await Promise.all([
+            constructionValuationRepository.sumCurrentPeriodQtyByPccesItemsExcludingValuation(
+              projectId,
+              leafIdList,
+              excludeValuationId
+            ),
+            constructionValuationRepository.sumCurrentPeriodAmountByPccesItemsExcludingValuation(
+              projectId,
+              leafIdList,
+              excludeValuationId
+            ),
+          ])
 
     const logMap =
       leafIdList.length === 0
@@ -780,6 +895,7 @@ export const constructionValuationService = {
           unitPrice: price.toString(),
           isStructuralLeaf: false,
           priorBilledQty: null,
+          priorBilledAmount: null,
           maxQty: null,
           logAccumulatedQtyToDate: null,
           suggestedAvailableQty: null,
@@ -787,6 +903,7 @@ export const constructionValuationService = {
         }
       }
       const prior = priorMap.get(r.id) ?? new Prisma.Decimal(0)
+      const priorAmt = priorAmountMap.get(r.id) ?? new Prisma.Decimal(0)
       const logQty = logMap.get(r.id) ?? new Prisma.Decimal(0)
       const effectiveCap = Prisma.Decimal.min(cap, logQty)
       const avail = effectiveCap.minus(prior)
@@ -803,6 +920,7 @@ export const constructionValuationService = {
         unitPrice: price.toString(),
         isStructuralLeaf: true,
         priorBilledQty: prior.toString(),
+        priorBilledAmount: priorAmt.toString(),
         maxQty: cap.toString(),
         logAccumulatedQtyToDate: logQty.toString(),
         suggestedAvailableQty: (avail.isNeg() ? new Prisma.Decimal(0) : avail).toString(),

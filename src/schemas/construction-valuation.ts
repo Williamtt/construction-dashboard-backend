@@ -29,7 +29,7 @@ export const constructionValuationLineInputSchema = z.object({
   unitPrice: decimalField,
   currentPeriodQty: decimalField,
   remark: z.string().max(8000).default(''),
-  /** 階層麵包屑（與 PccesItem.path）；儲存時後端會再依綁定工項／手填內容寫入 */
+  /** 階層麵包屑（與 PccesItem.path）；綁定 PCCES 時以請求快照為準（對齊估驗日契約），未送則後端補最新樹 path */
   path: z.string().max(32000).optional().default(''),
 })
 

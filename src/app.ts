@@ -30,7 +30,9 @@ app.use(
     credentials: true,
   })
 )
-app.use(express.json())
+/** 估驗計價等大量明細之 JSON；預設 10mb，可用環境變數覆寫（例：JSON_BODY_LIMIT=20mb） */
+const jsonBodyLimit = process.env.JSON_BODY_LIMIT?.trim() || '10mb'
+app.use(express.json({ limit: jsonBodyLimit }))
 
 app.use('/api/v1', apiRouter)
 

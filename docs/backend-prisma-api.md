@@ -212,13 +212,16 @@ Base URL：`/api/v1`。成功回應格式：`{ data, meta? }`；錯誤：`{ erro
 
 ### 估驗計價（`construction.valuation`）
 
+**請款快照、更新時單價鎖定、列表頁 KPI**：見 **`docs/construction-valuation-billing-snapshot.md`**。
+
 | 方法 | 路徑 | 說明 |
 |------|------|------|
-| GET | `/api/v1/projects/:projectId/construction-valuations/pcces-lines` | PCCES 明細選擇器；query：`excludeValuationId`（編輯時排除本單）、**`asOfDate=YYYY-MM-DD`**（可選；施工日誌累計算至此 UTC 日曆天**含當日**，省略則**今日 UTC**）；回 `{ data: { pccesImport, rows, groups, items } }`：**`rows`** 為全部工項、**`itemKey` 升序**；末層之 **`logAccumulatedQtyToDate`** 為同 **`itemKey` 跨版** 之 **`dailyQty` 加總**（非僅取單一列 `accumulated`）；並含 `priorBilledQty`、`maxQty`、`suggestedAvailableQty`；非末層上述欄位為 `null`；`items`＝末層子集；**`groups` 為空陣列** |
+| GET | `/api/v1/projects/:projectId/construction-valuations/pcces-lines` | PCCES 明細選擇器；query：`excludeValuationId`（編輯時排除本單）、**`asOfDate=YYYY-MM-DD`**（可選；施工日誌累計算至此 UTC 日曆天**含當日**，省略則**今日 UTC**）；回 `{ data: { pccesImport, rows, groups, items } }`：**`rows`** 為全部工項、**`itemKey` 升序**；末層之 **`logAccumulatedQtyToDate`** 為同 **`itemKey` 跨版** 之 **`dailyQty` 加總**（非僅取單一列 `accumulated`）；並含 `priorBilledQty`、**`priorBilledAmount`**（他次估驗已請款金額加總，依 itemKey 跨版 Σ 歷史列 qty×單價）、`maxQty`、`suggestedAvailableQty`；非末層上述欄位為 `null`；`items`＝末層子集；**`groups` 為空陣列** |
+| GET | `/api/v1/projects/:projectId/construction-valuations/summary` | 列表頁 KPI（契約上限、已請款、尚未請款、進度）；見專篇文件 |
 | GET | `/api/v1/projects/:projectId/construction-valuations` | 分頁列表；query：`page`、`limit` |
 | POST | `/api/v1/projects/:projectId/construction-valuations` | 建立；body 見 Zod `constructionValuationCreateSchema`（`lines` 至少一列） |
-| GET | `/api/v1/projects/:projectId/construction-valuations/:valuationId` | 單筆；`lines` 依 PCCES 父階重排並含 `pccesParentItemKey`；每列含 `logAccumulatedQtyToDate`（施工日誌 **`dailyQty` 依 itemKey 跨版加總** 至**表頭估驗日（含）**，無表頭則今日 UTC）與 `availableValuationQty`；`lineGroups` 標示區段（`lineStartIndex`／`lineCount`），有父階時 `parent` 帶 (六)(七) 子列加總 |
-| PATCH | `/api/v1/projects/:projectId/construction-valuations/:valuationId` | 整張覆寫（含子列） |
+| GET | `/api/v1/projects/:projectId/construction-valuations/:valuationId` | 單筆；`lines` 依 PCCES 父階重排並含 `pccesParentItemKey`；每列含 `priorBilledAmount`、`logAccumulatedQtyToDate`（施工日誌 **`dailyQty` 依 itemKey 跨版加總** 至**表頭估驗日（含）**，無表頭則今日 UTC）與 `availableValuationQty`；**`cumulativeAmountToDate`（七）**＝`priorBilledAmount`＋本次 `currentPeriodQty×unitPrice`（非「累計數量×當前列單價」，以免 PCCES 換單價改寫前期金額）；`lineGroups` 標示區段（`lineStartIndex`／`lineCount`），有父階時 `parent` 帶 (六)(七) 子列加總 |
+| PATCH | `/api/v1/projects/:projectId/construction-valuations/:valuationId` | 整張覆寫（含子列）；**已存在之 PCCES 列單價不可變**（`VALUATION_UNIT_PRICE_IMMUTABLE`）；明細契約欄位以請求快照寫入 |
 | DELETE | `/api/v1/projects/:projectId/construction-valuations/:valuationId` | 軟刪除；回 `{ data: { ok: true } }` |
 
 ---

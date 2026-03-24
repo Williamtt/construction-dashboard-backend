@@ -26,6 +26,13 @@ export const constructionValuationController = {
     res.status(200).json({ data: result.data, meta: result.meta })
   },
 
+  async listSummary(req: Request, res: Response) {
+    if (!req.user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
+    const projectId = getProjectId(req)
+    const data = await constructionValuationService.getListSummary(projectId, req.user)
+    res.status(200).json({ data })
+  },
+
   async pccesLinePicker(req: Request, res: Response) {
     if (!req.user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
     const projectId = getProjectId(req)

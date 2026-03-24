@@ -74,6 +74,22 @@ export function errorHandler(
     return
   }
 
+  /** express/body-parser：超過 express.json({ limit }) */
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    ((err as { type?: string }).type === 'entity.too.large' ||
+      (err instanceof Error && /entity too large/i.test(err.message)))
+  ) {
+    res.status(413).json({
+      error: {
+        code: 'PAYLOAD_TOO_LARGE',
+        message: '請求內容超過伺服器上限，請減少一次送出的資料量或聯繫管理員調整設定。',
+      },
+    })
+    return
+  }
+
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === 'P2002') {
       res.status(409).json({

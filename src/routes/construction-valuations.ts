@@ -10,6 +10,11 @@ constructionValuationsRouter.get(
 )
 
 constructionValuationsRouter.get(
+  '/summary',
+  asyncHandler(constructionValuationController.listSummary.bind(constructionValuationController))
+)
+
+constructionValuationsRouter.get(
   '/',
   asyncHandler(constructionValuationController.list.bind(constructionValuationController))
 )
