@@ -10,12 +10,15 @@ import { formTemplatesRouter } from './form-templates.js'
 import { adminRouter } from './admin.js'
 import { platformAdminRouter } from './platform-admin.js'
 import { alertsRouter } from './alerts.js'
+import { appMetaRouter } from './app-meta.js'
 
 export const apiRouter = Router()
 
 apiRouter.get('/', (_req, res) => {
   res.json({ data: { message: 'Construction Dashboard API v1' } })
 })
+
+apiRouter.use('/app', appMetaRouter)
 
 apiRouter.use(maintenanceMiddleware)
 apiRouter.use('/auth', authRouter)

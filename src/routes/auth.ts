@@ -2,9 +2,10 @@ import { Router, type Request, type Response } from 'express'
 import rateLimit from 'express-rate-limit'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcrypt'
+import crypto from 'crypto'
 import { prisma } from '../lib/db.js'
 import { storage } from '../lib/storage.js'
-import { loginSchema, changePasswordSchema } from '../schemas/auth.js'
+import { loginSchema, changePasswordSchema, refreshTokenSchema } from '../schemas/auth.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { AppError } from '../shared/errors.js'
 import { asyncHandler } from '../shared/utils/async-handler.js'
@@ -27,7 +28,22 @@ if (!JWT_SECRET) {
   throw new Error('JWT_SECRET is required')
 }
 
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN ?? '7d'
+/** Access JWT 效期；可單獨縮短（例 15m）以利行動端搭配 refresh。未設定時沿用 JWT_EXPIRES_IN。 */
+const JWT_ACCESS_EXPIRES_IN =
+  (process.env.JWT_ACCESS_EXPIRES_IN || process.env.JWT_EXPIRES_IN || '7d') as string
+
+const REFRESH_TOKEN_DAYS = Math.min(
+  90,
+  Math.max(1, parseInt(process.env.JWT_REFRESH_EXPIRES_DAYS ?? '30', 10) || 30)
+)
+
+function hashRefreshToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex')
+}
+
+function newRefreshTokenRaw(): string {
+  return crypto.randomBytes(32).toString('hex')
+}
 
 const loginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -164,12 +180,24 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
         tenantId: user.tenantId,
       },
       JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions
+      { expiresIn: JWT_ACCESS_EXPIRES_IN } as jwt.SignOptions
     )
+
+    const refreshRaw = newRefreshTokenRaw()
+    const refreshHash = hashRefreshToken(refreshRaw)
+    const refreshExpires = new Date(Date.now() + REFRESH_TOKEN_DAYS * 86_400_000)
+    await prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: refreshHash,
+        expiresAt: refreshExpires,
+      },
+    })
 
     res.status(200).json({
       data: {
         accessToken: token,
+        refreshToken: refreshRaw,
         user: {
           id: user.id,
           email: user.email,
@@ -192,6 +220,119 @@ authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) 
     res.status(500).json(payload)
   }
 })
+
+/** POST /api/v1/auth/refresh — 以 refreshToken 換發新 accessToken（並旋轉 refresh） */
+authRouter.post('/refresh', async (req: Request, res: Response) => {
+  try {
+    const parsed = refreshTokenSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: '欄位驗證失敗',
+          details: parsed.error.flatten(),
+        },
+      })
+      return
+    }
+
+    const hash = hashRefreshToken(parsed.data.refreshToken)
+    const row = await prisma.refreshToken.findFirst({
+      where: { tokenHash: hash, expiresAt: { gt: new Date() } },
+    })
+    if (!row) {
+      res.status(401).json({
+        error: { code: 'UNAUTHORIZED', message: 'refresh token 無效或已過期' },
+      })
+      return
+    }
+
+    const dbUser = await prisma.user.findFirst({
+      where: { id: row.userId, deletedAt: null },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        systemRole: true,
+        tenantId: true,
+        status: true,
+      },
+    })
+    if (!dbUser) {
+      await prisma.refreshToken.deleteMany({ where: { userId: row.userId } })
+      res.status(401).json({
+        error: { code: 'UNAUTHORIZED', message: '帳號不存在或已刪除' },
+      })
+      return
+    }
+    if (dbUser.status === 'suspended') {
+      await prisma.refreshToken.deleteMany({ where: { userId: row.userId } })
+      res.status(403).json({
+        error: { code: 'ACCOUNT_SUSPENDED', message: '帳號已停用，無法使用' },
+      })
+      return
+    }
+
+    const maintenanceOn = await isMaintenanceMode()
+    if (maintenanceOn && dbUser.systemRole !== 'platform_admin') {
+      res.status(503).json({
+        error: { code: 'MAINTENANCE', message: '系統維護中，請稍後再試。' },
+      })
+      return
+    }
+
+    await prisma.refreshToken.delete({ where: { id: row.id } })
+
+    const accessToken = jwt.sign(
+      {
+        sub: dbUser.id,
+        email: dbUser.email,
+        name: dbUser.name,
+        systemRole: dbUser.systemRole,
+        tenantId: dbUser.tenantId,
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_ACCESS_EXPIRES_IN } as jwt.SignOptions
+    )
+
+    const newRefreshRaw = newRefreshTokenRaw()
+    const newHash = hashRefreshToken(newRefreshRaw)
+    const refreshExpires = new Date(Date.now() + REFRESH_TOKEN_DAYS * 86_400_000)
+    await prisma.refreshToken.create({
+      data: {
+        userId: dbUser.id,
+        tokenHash: newHash,
+        expiresAt: refreshExpires,
+      },
+    })
+
+    res.status(200).json({
+      data: {
+        accessToken,
+        refreshToken: newRefreshRaw,
+      },
+    })
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e))
+    console.error('POST /auth/refresh', err.message, err.stack)
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: '更新登入狀態失敗' },
+    })
+  }
+})
+
+/** POST /api/v1/auth/logout — 撤銷該使用者所有 refresh token（access 仍須客戶端丟棄） */
+authRouter.post(
+  '/logout',
+  authMiddleware,
+  asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) {
+      throw new AppError(401, 'UNAUTHORIZED', '未登入')
+    }
+    await prisma.refreshToken.deleteMany({ where: { userId: req.user.id } })
+    res.status(200).json({ data: { ok: true } })
+  })
+)
 
 /** GET /api/v1/auth/me — 回傳當前登入者（需 Authorization），含 hasAvatar */
 authRouter.get(
@@ -391,6 +532,7 @@ authRouter.patch('/me/password', authMiddleware, async (req: Request, res: Respo
       where: { id: req.user.id },
       data: { passwordHash },
     })
+    await prisma.refreshToken.deleteMany({ where: { userId: req.user.id } })
     res.status(200).json({ data: { ok: true } })
   } catch (e) {
     console.error('PATCH /auth/me/password', e)

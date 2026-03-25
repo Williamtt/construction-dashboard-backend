@@ -10,5 +10,10 @@ export const changePasswordSchema = z.object({
   newPassword: z.string().min(6, '新密碼至少 6 碼'),
 })
 
+export const refreshTokenSchema = z.object({
+  refreshToken: z.string().min(20, '無效的 refresh token'),
+})
+
 export type LoginBody = z.infer<typeof loginSchema>
 export type ChangePasswordBody = z.infer<typeof changePasswordSchema>
+export type RefreshTokenBody = z.infer<typeof refreshTokenSchema>
