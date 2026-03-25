@@ -42,3 +42,9 @@ export const createRepairExecutionRecordSchema = z.object({
 })
 
 export type CreateRepairExecutionRecordBody = z.infer<typeof createRepairExecutionRecordSchema>
+
+export const updateRepairExecutionRecordSchema = z.object({
+  content: z.string().min(1, '報修紀錄內容為必填').max(5000),
+})
+
+export type UpdateRepairExecutionRecordBody = z.infer<typeof updateRepairExecutionRecordSchema>

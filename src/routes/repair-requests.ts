@@ -22,6 +22,12 @@ repairRequestsRouter.get(
   asyncHandler(repairRequestController.getRecord.bind(repairRequestController))
 )
 
+/** PATCH /api/v1/projects/:projectId/repair-requests/:id/records/:recordId — 更新報修執行紀錄內容 */
+repairRequestsRouter.patch(
+  '/:id/records/:recordId',
+  asyncHandler(repairRequestController.updateRecord.bind(repairRequestController))
+)
+
 /** GET /api/v1/projects/:projectId/repair-requests/:id — 單一報修（含照片、附件） */
 repairRequestsRouter.get('/:id', asyncHandler(repairRequestController.getById.bind(repairRequestController)))
 

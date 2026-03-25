@@ -4,7 +4,7 @@ import { defectImprovementController } from '../modules/defect-improvement/index
 
 export const defectImprovementsRouter = Router({ mergeParams: true })
 
-/** GET /api/v1/projects/:projectId/defect-improvements — 缺失改善列表（可 ?status=in_progress|completed） */
+/** GET /api/v1/projects/:projectId/defect-improvements — 缺失改善列表（可 ?status=、?q=關鍵字、分頁） */
 defectImprovementsRouter.get('/', asyncHandler(defectImprovementController.list.bind(defectImprovementController)))
 
 /** POST /api/v1/projects/:projectId/defect-improvements — 新增缺失改善 */
@@ -18,6 +18,12 @@ defectImprovementsRouter.post('/:id/records', asyncHandler(defectImprovementCont
 
 /** GET /api/v1/projects/:projectId/defect-improvements/:id/records/:recordId — 單一執行紀錄（含照片） */
 defectImprovementsRouter.get('/:id/records/:recordId', asyncHandler(defectImprovementController.getRecord.bind(defectImprovementController)))
+
+/** PATCH /api/v1/projects/:projectId/defect-improvements/:id/records/:recordId — 更新執行紀錄內容 */
+defectImprovementsRouter.patch(
+  '/:id/records/:recordId',
+  asyncHandler(defectImprovementController.updateRecord.bind(defectImprovementController))
+)
 
 /** GET /api/v1/projects/:projectId/defect-improvements/:id — 單一缺失（含照片） */
 defectImprovementsRouter.get('/:id', asyncHandler(defectImprovementController.getById.bind(defectImprovementController)))

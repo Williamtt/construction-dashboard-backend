@@ -5,6 +5,7 @@ import {
   createDefectImprovementSchema,
   updateDefectImprovementSchema,
   createDefectExecutionRecordSchema,
+  updateDefectExecutionRecordSchema,
 } from '../../schemas/defect-improvement.js'
 
 type AuthUser = {
@@ -70,11 +71,13 @@ export const defectImprovementController = {
     const user = req.user as AuthUser | undefined
     if (!user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
     const status = typeof req.query.status === 'string' ? req.query.status : undefined
+    const rawQ = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+    const q = rawQ.length > 200 ? rawQ.slice(0, 200) : rawQ
     const page = Math.max(1, Number(req.query.page) || 1)
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20))
     const { items, total } = await defectImprovementService.list(
       projectId,
-      { status, page, limit },
+      { status, page, limit, ...(q ? { search: q } : {}) },
       user
     )
     res.status(200).json({
@@ -168,5 +171,20 @@ export const defectImprovementController = {
       throw new AppError(404, 'NOT_FOUND', '找不到該執行紀錄')
     }
     res.status(200).json({ data: toRecordDto(result, result.photos) })
+  },
+
+  async updateRecord(req: Request, res: Response) {
+    const projectId = getProjectId(req)
+    const defectId = getId(req)
+    const recordId = getId(req, 'recordId')
+    const user = req.user as AuthUser | undefined
+    if (!user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
+    const parsed = updateDefectExecutionRecordSchema.safeParse(req.body)
+    if (!parsed.success) {
+      const msg = parsed.error.errors[0]?.message ?? '欄位驗證失敗'
+      throw new AppError(400, 'VALIDATION_ERROR', msg)
+    }
+    const record = await defectImprovementService.updateRecord(projectId, defectId, recordId, parsed.data, user)
+    res.status(200).json({ data: toRecordDto(record) })
   },
 }

@@ -216,4 +216,13 @@ export const repairExecutionRecordRepository = {
       select: repairRecordSelect,
     }) as Promise<RepairExecutionRecordRow>
   },
+
+  async updateContent(recordId: string, content: string): Promise<RepairExecutionRecordRow | null> {
+    const n = await prisma.repairExecutionRecord.updateMany({
+      where: { id: recordId, ...notDeleted },
+      data: { content },
+    })
+    if (n.count === 0) return null
+    return repairExecutionRecordRepository.findById(recordId)
+  },
 }

@@ -13,6 +13,7 @@ import type {
   CreateRepairRequestBody,
   UpdateRepairRequestBody,
   CreateRepairExecutionRecordBody,
+  UpdateRepairExecutionRecordBody,
 } from '../../schemas/repair-request.js'
 
 const REPAIR_PHOTO_CATEGORY = 'repair_photo'
@@ -265,5 +266,28 @@ export const repairRequestService = {
       await linkAttachments(projectId, body.attachmentIds, record.id, REPAIR_RECORD_PHOTO_CATEGORY)
     }
     return record
+  },
+
+  async updateRecord(
+    projectId: string,
+    repairId: string,
+    recordId: string,
+    body: UpdateRepairExecutionRecordBody,
+    user: AuthUser
+  ): Promise<RepairExecutionRecordRow> {
+    await ensureRepair(projectId, user, 'update')
+    const repair = await repairRequestRepository.findById(repairId)
+    if (!repair || repair.projectId !== projectId) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該報修單')
+    }
+    const existing = await repairExecutionRecordRepository.findById(recordId)
+    if (!existing || existing.repairId !== repairId) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該報修紀錄')
+    }
+    const updated = await repairExecutionRecordRepository.updateContent(recordId, body.content.trim())
+    if (!updated) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該報修紀錄')
+    }
+    return updated
   },
 }

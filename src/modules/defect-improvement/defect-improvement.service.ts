@@ -13,6 +13,7 @@ import type {
   CreateDefectImprovementBody,
   UpdateDefectImprovementBody,
   CreateDefectExecutionRecordBody,
+  UpdateDefectExecutionRecordBody,
 } from '../../schemas/defect-improvement.js'
 
 const DEFECT_PHOTO_CATEGORY = 'defect'
@@ -79,20 +80,23 @@ async function getAttachmentsByBusiness(
 export const defectImprovementService = {
   async list(
     projectId: string,
-    args: { status?: string; page?: number; limit?: number },
+    args: { status?: string; page?: number; limit?: number; search?: string },
     user: AuthUser
   ): Promise<{ items: DefectListItem[]; total: number }> {
     await ensureDefect(projectId, user, 'read')
     const limit = Math.min(50, Math.max(1, args.limit ?? 20))
     const page = Math.max(1, args.page ?? 1)
     const skip = (page - 1) * limit
+    const search =
+      typeof args.search === 'string' && args.search.trim() ? args.search.trim() : undefined
     const [items, total] = await Promise.all([
       defectImprovementRepository.findManyByProject(projectId, {
         status: args.status,
+        search,
         skip,
         take: limit,
       }),
-      defectImprovementRepository.countByProject(projectId, args.status),
+      defectImprovementRepository.countByProject(projectId, args.status, search),
     ])
     return { items, total }
   },
@@ -228,5 +232,28 @@ export const defectImprovementService = {
       await linkAttachments(projectId, body.attachmentIds, record.id, DEFECT_RECORD_PHOTO_CATEGORY)
     }
     return record
+  },
+
+  async updateRecord(
+    projectId: string,
+    defectId: string,
+    recordId: string,
+    body: UpdateDefectExecutionRecordBody,
+    user: AuthUser
+  ): Promise<DefectExecutionRecordRow> {
+    await ensureDefect(projectId, user, 'update')
+    const defect = await defectImprovementRepository.findById(defectId)
+    if (!defect || defect.projectId !== projectId) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該缺失改善')
+    }
+    const existing = await defectExecutionRecordRepository.findById(recordId)
+    if (!existing || existing.defectId !== defectId) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該執行紀錄')
+    }
+    const updated = await defectExecutionRecordRepository.updateContent(recordId, body.content.trim())
+    if (!updated) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該執行紀錄')
+    }
+    return updated
   },
 }

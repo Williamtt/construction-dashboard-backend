@@ -34,3 +34,9 @@ export const createDefectExecutionRecordSchema = z.object({
 })
 
 export type CreateDefectExecutionRecordBody = z.infer<typeof createDefectExecutionRecordSchema>
+
+export const updateDefectExecutionRecordSchema = z.object({
+  content: z.string().min(1, '執行紀錄內容為必填').max(5000),
+})
+
+export type UpdateDefectExecutionRecordBody = z.infer<typeof updateDefectExecutionRecordSchema>

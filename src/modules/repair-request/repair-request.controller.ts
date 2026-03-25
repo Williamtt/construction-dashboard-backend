@@ -5,6 +5,7 @@ import {
   createRepairRequestSchema,
   updateRepairRequestSchema,
   createRepairExecutionRecordSchema,
+  updateRepairExecutionRecordSchema,
 } from '../../schemas/repair-request.js'
 import type { AttachmentMeta } from './repair-request.service.js'
 import type { RepairListItem, RepairExecutionRecordRow } from './repair-request.repository.js'
@@ -207,5 +208,20 @@ export const repairRequestController = {
       throw new AppError(404, 'NOT_FOUND', '找不到該報修紀錄')
     }
     res.status(200).json({ data: toRepairRecordDto(result, result.photos) })
+  },
+
+  async updateRecord(req: Request, res: Response) {
+    const projectId = getProjectId(req)
+    const repairId = getRepairId(req)
+    const recordId = getRecordId(req)
+    const user = req.user as AuthUser | undefined
+    if (!user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
+    const parsed = updateRepairExecutionRecordSchema.safeParse(req.body)
+    if (!parsed.success) {
+      const msg = parsed.error.errors[0]?.message ?? '欄位驗證失敗'
+      throw new AppError(400, 'VALIDATION_ERROR', msg)
+    }
+    const record = await repairRequestService.updateRecord(projectId, repairId, recordId, parsed.data, user)
+    res.status(200).json({ data: toRepairRecordDto(record) })
   },
 }

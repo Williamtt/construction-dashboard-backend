@@ -27,12 +27,33 @@ export type DefectListItem = {
   updatedAt: Date
 }
 
+function searchWhereClause(search: string): Record<string, unknown> {
+  const q = search.trim()
+  if (!q) return {}
+  return {
+    OR: [
+      { description: { contains: q, mode: 'insensitive' as const } },
+      { discoveredBy: { contains: q, mode: 'insensitive' as const } },
+      ...(q.length >= 6 ? [{ id: { contains: q, mode: 'insensitive' as const } }] : []),
+      { floor: { contains: q, mode: 'insensitive' as const } },
+      { location: { contains: q, mode: 'insensitive' as const } },
+    ],
+  }
+}
+
 export const defectImprovementRepository = {
   async findManyByProject(
     projectId: string,
-    args: { status?: string; skip?: number; take?: number }
+    args: { status?: string; search?: string; skip?: number; take?: number }
   ) {
-    const where = { projectId, ...notDeleted, ...(args.status ? { status: args.status } : {}) }
+    const searchPart =
+      args.search && args.search.trim() ? searchWhereClause(args.search) : {}
+    const where = {
+      projectId,
+      ...notDeleted,
+      ...(args.status ? { status: args.status } : {}),
+      ...searchPart,
+    }
     return prisma.defectImprovement.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
@@ -42,8 +63,14 @@ export const defectImprovementRepository = {
     }) as Promise<DefectListItem[]>
   },
 
-  async countByProject(projectId: string, status?: string) {
-    const where = { projectId, ...notDeleted, ...(status ? { status } : {}) }
+  async countByProject(projectId: string, status?: string, search?: string) {
+    const searchPart = search && search.trim() ? searchWhereClause(search) : {}
+    const where = {
+      projectId,
+      ...notDeleted,
+      ...(status ? { status } : {}),
+      ...searchPart,
+    }
     return prisma.defectImprovement.count({ where })
   },
 
@@ -176,5 +203,14 @@ export const defectExecutionRecordRepository = {
       },
       select: recordSelect,
     }) as Promise<DefectExecutionRecordRow>
+  },
+
+  async updateContent(recordId: string, content: string): Promise<DefectExecutionRecordRow | null> {
+    const n = await prisma.defectExecutionRecord.updateMany({
+      where: { id: recordId, ...notDeleted },
+      data: { content },
+    })
+    if (n.count === 0) return null
+    return defectExecutionRecordRepository.findById(recordId)
   },
 }
