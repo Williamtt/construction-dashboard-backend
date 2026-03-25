@@ -57,6 +57,7 @@ export const alertsRepository = {
       where: {
         ...(projectId != null ? { projectId } : { projectId: null }),
         lastSeenAt: { gte: cutoff },
+        NOT: { source: 'mock' },
       },
       orderBy: { lastSeenAt: 'desc' },
       select: alertRecordSelect,
@@ -157,6 +158,7 @@ export const alertsRepository = {
           gte: params.startDate,
           lte: params.endDate,
         },
+        NOT: { source: 'mock' },
       },
       orderBy: { createdAt: 'desc' },
       take: params.limit ?? 100,

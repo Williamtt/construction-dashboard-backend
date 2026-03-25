@@ -35,12 +35,34 @@ export type RepairListItem = {
   updatedAt: Date
 }
 
+function searchWhereClause(search: string): Record<string, unknown> {
+  const q = search.trim()
+  if (!q) return {}
+  return {
+    OR: [
+      { customerName: { contains: q, mode: 'insensitive' as const } },
+      { contactPhone: { contains: q, mode: 'insensitive' as const } },
+      { repairContent: { contains: q, mode: 'insensitive' as const } },
+      { problemCategory: { contains: q, mode: 'insensitive' as const } },
+      { unitLabel: { contains: q, mode: 'insensitive' as const } },
+      { remarks: { contains: q, mode: 'insensitive' as const } },
+    ],
+  }
+}
+
 export const repairRequestRepository = {
   async findManyByProject(
     projectId: string,
-    args: { status?: string; skip?: number; take?: number }
+    args: { statusIn?: string[]; search?: string; skip?: number; take?: number }
   ) {
-    const where = { projectId, ...notDeleted, ...(args.status ? { status: args.status } : {}) }
+    const searchPart =
+      args.search && args.search.trim() ? searchWhereClause(args.search) : {}
+    const where = {
+      projectId,
+      ...notDeleted,
+      ...(args.statusIn?.length ? { status: { in: args.statusIn } } : {}),
+      ...searchPart,
+    }
     return prisma.repairRequest.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
@@ -50,8 +72,14 @@ export const repairRequestRepository = {
     }) as Promise<RepairListItem[]>
   },
 
-  async countByProject(projectId: string, status?: string) {
-    const where = { projectId, ...notDeleted, ...(status ? { status } : {}) }
+  async countByProject(projectId: string, statusIn?: string[], search?: string) {
+    const searchPart = search && search.trim() ? searchWhereClause(search) : {}
+    const where = {
+      projectId,
+      ...notDeleted,
+      ...(statusIn?.length ? { status: { in: statusIn } } : {}),
+      ...searchPart,
+    }
     return prisma.repairRequest.count({ where })
   },
 

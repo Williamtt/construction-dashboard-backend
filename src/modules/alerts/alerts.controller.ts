@@ -9,7 +9,7 @@ type AlertsAuthUser = {
 }
 
 export const alertsController = {
-  /** GET /alerts/current — 即時警報（目前回傳假資料，之後接 CWA） */
+  /** GET /alerts/current — 即時警報（讀取 DB，30 分鐘內有效；不含 mock） */
   async current(req: Request, res: Response) {
     const user = req.user as AlertsAuthUser
     if (!user?.id) {

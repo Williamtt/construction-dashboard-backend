@@ -97,20 +97,23 @@ function parsePatchDate(
 export const repairRequestService = {
   async list(
     projectId: string,
-    args: { status?: string; page?: number; limit?: number },
+    args: { statusIn?: string[]; page?: number; limit?: number; search?: string },
     user: AuthUser
   ): Promise<{ items: RepairListItem[]; total: number }> {
     await ensureRepair(projectId, user, 'read')
     const limit = Math.min(50, Math.max(1, args.limit ?? 20))
     const page = Math.max(1, args.page ?? 1)
     const skip = (page - 1) * limit
+    const search =
+      typeof args.search === 'string' && args.search.trim() ? args.search.trim() : undefined
     const [items, total] = await Promise.all([
       repairRequestRepository.findManyByProject(projectId, {
-        status: args.status,
+        statusIn: args.statusIn,
+        search,
         skip,
         take: limit,
       }),
-      repairRequestRepository.countByProject(projectId, args.status),
+      repairRequestRepository.countByProject(projectId, args.statusIn, search),
     ])
     return { items, total }
   },

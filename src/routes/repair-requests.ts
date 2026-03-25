@@ -4,7 +4,7 @@ import { repairRequestController } from '../modules/repair-request/index.js'
 
 export const repairRequestsRouter = Router({ mergeParams: true })
 
-/** GET /api/v1/projects/:projectId/repair-requests — 報修列表（可 ?status=in_progress|completed） */
+/** GET /api/v1/projects/:projectId/repair-requests — 報修列表（?status=、?q=關鍵字、分頁） */
 repairRequestsRouter.get('/', asyncHandler(repairRequestController.list.bind(repairRequestController)))
 
 /** POST /api/v1/projects/:projectId/repair-requests — 新增報修 */

@@ -36,6 +36,24 @@ function getRecordId(req: Request): string {
   throw new AppError(400, 'BAD_REQUEST', '缺少報修紀錄 ID')
 }
 
+const REPAIR_LIST_STATUS = new Set(['in_progress', 'completed'])
+
+/** 支援 `status=in_progress` 或 `status=in_progress,completed` 或重複 query */
+function parseListStatusQuery(raw: unknown): string[] | undefined {
+  if (raw === undefined || raw === '') return undefined
+  const parts = Array.isArray(raw)
+    ? raw.flatMap((r) => String(r).split(','))
+    : String(raw).split(',')
+  const trimmed = parts.map((s) => s.trim()).filter(Boolean)
+  if (trimmed.length === 0) return undefined
+  for (const p of trimmed) {
+    if (!REPAIR_LIST_STATUS.has(p)) {
+      throw new AppError(400, 'BAD_REQUEST', '無效的狀態篩選')
+    }
+  }
+  return [...new Set(trimmed)]
+}
+
 function dateToIso(d: Date | null): string | null {
   return d ? d.toISOString() : null
 }
@@ -86,12 +104,14 @@ export const repairRequestController = {
     const projectId = getProjectId(req)
     const user = req.user as AuthUser | undefined
     if (!user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
-    const status = typeof req.query.status === 'string' ? req.query.status : undefined
+    const statusIn = parseListStatusQuery(req.query.status)
+    const rawQ = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+    const q = rawQ.length > 200 ? rawQ.slice(0, 200) : rawQ
     const page = Math.max(1, Number(req.query.page) || 1)
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20))
     const { items, total } = await repairRequestService.list(
       projectId,
-      { status, page, limit },
+      { statusIn, page, limit, ...(q ? { search: q } : {}) },
       user
     )
     res.status(200).json({
