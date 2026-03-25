@@ -48,6 +48,18 @@ projectSelfInspectionsRouter.get(
   asyncHandler(projectSelfInspectionController.getRecord.bind(projectSelfInspectionController))
 )
 
+/** PATCH .../self-inspections/templates/:templateId/records/:recordId */
+projectSelfInspectionsRouter.patch(
+  '/templates/:templateId/records/:recordId',
+  asyncHandler(projectSelfInspectionController.updateRecord.bind(projectSelfInspectionController))
+)
+
+/** DELETE .../self-inspections/templates/:templateId/records/:recordId */
+projectSelfInspectionsRouter.delete(
+  '/templates/:templateId/records/:recordId',
+  asyncHandler(projectSelfInspectionController.deleteRecord.bind(projectSelfInspectionController))
+)
+
 /** DELETE .../self-inspections/templates/:templateId — 移除匯入（僅當本專案無查驗紀錄） */
 projectSelfInspectionsRouter.delete(
   '/templates/:templateId',

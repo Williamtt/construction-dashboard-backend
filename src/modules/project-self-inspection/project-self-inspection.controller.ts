@@ -1,7 +1,10 @@
 import type { Request, Response } from 'express'
 import { AppError } from '../../shared/errors.js'
 import { projectSelfInspectionService } from './project-self-inspection.service.js'
-import { createProjectSelfInspectionRecordSchema } from '../../schemas/self-inspection-record.js'
+import {
+  createProjectSelfInspectionRecordSchema,
+  updateProjectSelfInspectionRecordSchema,
+} from '../../schemas/self-inspection-record.js'
 import { importProjectSelfInspectionTemplateSchema } from '../../schemas/project-self-inspection-link.js'
 
 type AuthUser = {
@@ -140,5 +143,36 @@ export const projectSelfInspectionController = {
       throw new AppError(404, 'NOT_FOUND', '找不到該查驗紀錄')
     }
     res.status(200).json({ data })
+  },
+
+  async updateRecord(req: Request, res: Response) {
+    const projectId = getProjectId(req)
+    const templateId = getTemplateId(req)
+    const recordId = getRecordId(req)
+    const user = req.user as AuthUser | undefined
+    if (!user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
+    const parsed = updateProjectSelfInspectionRecordSchema.safeParse(req.body)
+    if (!parsed.success) {
+      const msg = parsed.error.errors[0]?.message ?? '欄位驗證失敗'
+      throw new AppError(400, 'VALIDATION_ERROR', msg)
+    }
+    const data = await projectSelfInspectionService.updateRecord(
+      projectId,
+      templateId,
+      recordId,
+      user,
+      parsed.data.filledPayload
+    )
+    res.status(200).json({ data })
+  },
+
+  async deleteRecord(req: Request, res: Response) {
+    const projectId = getProjectId(req)
+    const templateId = getTemplateId(req)
+    const recordId = getRecordId(req)
+    const user = req.user as AuthUser | undefined
+    if (!user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
+    await projectSelfInspectionService.deleteRecord(projectId, templateId, recordId, user)
+    res.status(204).send()
   },
 }

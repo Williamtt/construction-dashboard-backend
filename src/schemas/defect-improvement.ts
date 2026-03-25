@@ -23,6 +23,8 @@ export const updateDefectImprovementSchema = z.object({
   floor: z.string().max(100).optional().nullable(),
   location: z.string().max(200).optional().nullable(),
   status: statusEnum.optional(),
+  /** 若帶入則取代現場照片綁定（`defect`，未綁定或已屬本缺失） */
+  attachmentIds: z.array(z.string().trim().min(1).max(64)).max(30).optional(),
 })
 
 export type UpdateDefectImprovementBody = z.infer<typeof updateDefectImprovementSchema>
@@ -37,6 +39,8 @@ export type CreateDefectExecutionRecordBody = z.infer<typeof createDefectExecuti
 
 export const updateDefectExecutionRecordSchema = z.object({
   content: z.string().min(1, '執行紀錄內容為必填').max(5000),
+  /** 若帶入則取代紀錄照片（`defect_record`） */
+  attachmentIds: z.array(z.string().trim().min(1).max(64)).max(30).optional(),
 })
 
 export type UpdateDefectExecutionRecordBody = z.infer<typeof updateDefectExecutionRecordSchema>

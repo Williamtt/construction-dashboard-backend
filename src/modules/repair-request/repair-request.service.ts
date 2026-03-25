@@ -9,6 +9,7 @@ import {
   type RepairListItem,
   type RepairExecutionRecordRow,
 } from './repair-request.repository.js'
+import type { Prisma } from '@prisma/client'
 import type {
   CreateRepairRequestBody,
   UpdateRepairRequestBody,
@@ -57,13 +58,64 @@ export type AttachmentMeta = {
   url: string
 }
 
+const MAX_LINKED_ATTACHMENTS = 30
+
+/** 以新 id 清單取代某 business 底下該 category 的綁定（其餘同組解綁為 businessId=null） */
+async function replaceLinkedAttachments(
+  projectId: string,
+  businessId: string,
+  category: string,
+  newIds: string[]
+): Promise<void> {
+  const unique = [...new Set(newIds)]
+  if (unique.length > MAX_LINKED_ATTACHMENTS) {
+    throw new AppError(400, 'VALIDATION_ERROR', `附件最多 ${MAX_LINKED_ATTACHMENTS} 個`)
+  }
+  if (unique.length > 0) {
+    const rows = await prisma.attachment.findMany({
+      where: { id: { in: unique }, projectId, ...notDeleted },
+      select: { id: true, category: true, businessId: true },
+    })
+    if (rows.length !== unique.length) {
+      throw new AppError(400, 'VALIDATION_ERROR', '附件 id 無效或已刪除')
+    }
+    for (const r of rows) {
+      const ok = r.category === category && (r.businessId == null || r.businessId === businessId)
+      if (!ok) {
+        throw new AppError(400, 'VALIDATION_ERROR', '附件無法用於此報修／紀錄')
+      }
+    }
+  }
+
+  const unlinkWhere: Prisma.AttachmentWhereInput = {
+    projectId,
+    businessId,
+    category,
+    ...notDeleted,
+  }
+  if (unique.length > 0) {
+    unlinkWhere.id = { notIn: unique }
+  }
+  await prisma.attachment.updateMany({
+    where: unlinkWhere,
+    data: { businessId: null },
+  })
+
+  if (unique.length > 0) {
+    await prisma.attachment.updateMany({
+      where: { id: { in: unique }, projectId, ...notDeleted },
+      data: { businessId, category },
+    })
+  }
+}
+
 async function getAttachmentsByBusiness(
   projectId: string,
   businessId: string,
   category: string
 ): Promise<AttachmentMeta[]> {
   const list = await prisma.attachment.findMany({
-    where: { projectId, businessId, category },
+    where: { projectId, businessId, category, ...notDeleted },
     orderBy: { createdAt: 'asc' },
     select: { id: true, fileName: true, fileSize: true, mimeType: true, createdAt: true },
   })
@@ -171,7 +223,7 @@ export const repairRequestService = {
     }
     const deliveryDate = parsePatchDate(body.deliveryDate)
     const repairDate = parsePatchDate(body.repairDate)
-    return repairRequestRepository.update(repairId, {
+    const row = await repairRequestRepository.update(repairId, {
       ...(body.customerName !== undefined && { customerName: body.customerName.trim() }),
       ...(body.contactPhone !== undefined && { contactPhone: body.contactPhone.trim() }),
       ...(body.repairContent !== undefined && { repairContent: body.repairContent.trim() }),
@@ -183,6 +235,13 @@ export const repairRequestService = {
       ...(repairDate !== undefined && { repairDate }),
       ...(body.status !== undefined && { status: body.status }),
     })
+    if (body.photoAttachmentIds !== undefined) {
+      await replaceLinkedAttachments(projectId, repairId, REPAIR_PHOTO_CATEGORY, body.photoAttachmentIds)
+    }
+    if (body.fileAttachmentIds !== undefined) {
+      await replaceLinkedAttachments(projectId, repairId, REPAIR_FILE_CATEGORY, body.fileAttachmentIds)
+    }
+    return row
   },
 
   async delete(projectId: string, repairId: string, user: AuthUser): Promise<void> {
@@ -208,7 +267,12 @@ export const repairRequestService = {
     if (records.length === 0) return []
     const recordIds = records.map((r) => r.id)
     const allPhotos = await prisma.attachment.findMany({
-      where: { projectId, category: REPAIR_RECORD_PHOTO_CATEGORY, businessId: { in: recordIds } },
+      where: {
+        projectId,
+        category: REPAIR_RECORD_PHOTO_CATEGORY,
+        businessId: { in: recordIds },
+        ...notDeleted,
+      },
       orderBy: { createdAt: 'asc' },
       select: { id: true, fileName: true, fileSize: true, mimeType: true, createdAt: true, businessId: true },
     })
@@ -287,6 +351,9 @@ export const repairRequestService = {
     const updated = await repairExecutionRecordRepository.updateContent(recordId, body.content.trim())
     if (!updated) {
       throw new AppError(404, 'NOT_FOUND', '找不到該報修紀錄')
+    }
+    if (body.attachmentIds !== undefined) {
+      await replaceLinkedAttachments(projectId, recordId, REPAIR_RECORD_PHOTO_CATEGORY, body.attachmentIds)
     }
     return updated
   },

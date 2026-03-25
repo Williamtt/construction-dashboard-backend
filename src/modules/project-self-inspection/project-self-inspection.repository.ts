@@ -87,6 +87,22 @@ export const projectSelfInspectionRepository = {
       select: recordSelectDetail,
     }) as Promise<SelfInspectionRecordRow>
   },
+
+  async updateFilledPayload(recordId: string, filledPayload: Prisma.InputJsonValue, filledById: string) {
+    const r = await prisma.selfInspectionRecord.updateMany({
+      where: { id: recordId, ...notDeleted },
+      data: { filledPayload, filledById },
+    })
+    return r.count
+  },
+
+  async softDelete(recordId: string, deletedById: string) {
+    const r = await prisma.selfInspectionRecord.updateMany({
+      where: { id: recordId, ...notDeleted },
+      data: softDeleteSet(deletedById),
+    })
+    return r.count
+  },
 }
 
 const templateBriefSelect = {

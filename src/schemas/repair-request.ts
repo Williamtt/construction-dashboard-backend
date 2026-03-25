@@ -31,6 +31,10 @@ export const updateRepairRequestSchema = z.object({
   deliveryDate: z.union([z.string(), z.null()]).optional(),
   repairDate: z.union([z.string(), z.null()]).optional(),
   status: statusEnum.optional(),
+  /** 若帶入則取代現場照片綁定（id 須為同專案 `repair_photo`，且未綁定或已屬本單） */
+  photoAttachmentIds: z.array(z.string().trim().min(1).max(64)).max(30).optional(),
+  /** 若帶入則取代附件綁定（`repair_attachment`） */
+  fileAttachmentIds: z.array(z.string().trim().min(1).max(64)).max(30).optional(),
 })
 
 export type UpdateRepairRequestBody = z.infer<typeof updateRepairRequestSchema>
@@ -45,6 +49,8 @@ export type CreateRepairExecutionRecordBody = z.infer<typeof createRepairExecuti
 
 export const updateRepairExecutionRecordSchema = z.object({
   content: z.string().min(1, '報修紀錄內容為必填').max(5000),
+  /** 若帶入則取代紀錄照片（`repair_record`） */
+  attachmentIds: z.array(z.string().trim().min(1).max(64)).max(30).optional(),
 })
 
 export type UpdateRepairExecutionRecordBody = z.infer<typeof updateRepairExecutionRecordSchema>

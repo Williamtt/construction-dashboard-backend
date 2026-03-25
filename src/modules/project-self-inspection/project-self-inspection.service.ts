@@ -5,6 +5,7 @@ import {
   selfInspectionTemplateRepository,
   selfInspectionBlockRepository,
   type SelfInspectionBlockWithItems,
+  type SelfInspectionBlockItemRow,
 } from '../self-inspection-template/self-inspection-template.repository.js'
 import { mergeHeaderConfig, type HeaderConfig } from '../../schemas/self-inspection-template.js'
 import { notDeleted } from '../../shared/soft-delete.js'
@@ -78,6 +79,36 @@ function collectItemIds(blocks: SelfInspectionBlockWithItems[]): Set<string> {
   return s
 }
 
+const SELF_INSPECTION_PHOTO_CATEGORY = 'self_inspection_photo'
+
+function normalizeFilledPayloadPhotoIds(payload: FilledPayloadInput): FilledPayloadInput {
+  const raw = payload.photoAttachmentIds
+  if (raw == null || !Array.isArray(raw) || raw.length === 0) {
+    return { ...payload, photoAttachmentIds: undefined }
+  }
+  const unique = [...new Set(raw)]
+  return { ...payload, photoAttachmentIds: unique }
+}
+
+async function validateSelfInspectionPhotoAttachments(
+  projectId: string,
+  ids: string[] | null | undefined
+): Promise<void> {
+  if (ids == null || ids.length === 0) return
+  const rows = await prisma.attachment.findMany({
+    where: {
+      id: { in: ids },
+      projectId,
+      category: SELF_INSPECTION_PHOTO_CATEGORY,
+      ...notDeleted,
+    },
+    select: { id: true },
+  })
+  if (rows.length !== ids.length) {
+    throw new AppError(400, 'VALIDATION_ERROR', '照片附件 id 無效、已刪除或不屬於本專案')
+  }
+}
+
 function validateFilledPayload(header: HeaderConfig, blocks: SelfInspectionBlockWithItems[], payload: FilledPayloadInput) {
   const validItemIds = collectItemIds(blocks)
   const timingIds = new Set(header.timingOptions.map((o) => o.id))
@@ -102,6 +133,67 @@ function validateFilledPayload(header: HeaderConfig, blocks: SelfInspectionBlock
       throw new AppError(400, 'VALIDATION_ERROR', '檢查結果選項無效')
     }
   }
+}
+
+/** 由紀錄 structure_snapshot 還原驗證用 blocks（與建立當下樣板一致） */
+function snapshotToBlocksForValidation(snapshot: unknown): SelfInspectionBlockWithItems[] | null {
+  if (snapshot == null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    return null
+  }
+  const o = snapshot as Record<string, unknown>
+  const blocksRaw = o.blocks
+  if (!Array.isArray(blocksRaw)) {
+    return null
+  }
+  const now = new Date()
+  const blocks: SelfInspectionBlockWithItems[] = []
+  for (const br of blocksRaw) {
+    if (!br || typeof br !== 'object') {
+      continue
+    }
+    const b = br as Record<string, unknown>
+    const itemsRaw = b.items
+    if (!Array.isArray(itemsRaw)) {
+      return null
+    }
+    const items: SelfInspectionBlockItemRow[] = itemsRaw.map((ir) => {
+      const it = ir as Record<string, unknown>
+      return {
+        id: String(it.id),
+        blockId: String(it.blockId ?? b.id),
+        categoryLabel: String(it.categoryLabel ?? ''),
+        itemName: String(it.itemName ?? ''),
+        standardText: String(it.standardText ?? ''),
+        sortOrder: typeof it.sortOrder === 'number' ? it.sortOrder : 0,
+        createdAt: now,
+        updatedAt: now,
+      }
+    })
+    blocks.push({
+      id: String(b.id),
+      templateId: String(b.templateId ?? ''),
+      title: String(b.title ?? ''),
+      description: b.description == null ? null : String(b.description),
+      sortOrder: typeof b.sortOrder === 'number' ? b.sortOrder : 0,
+      createdAt: now,
+      updatedAt: now,
+      items,
+    })
+  }
+  return blocks
+}
+
+function headerFromStructureSnapshot(snapshot: unknown): HeaderConfig | null {
+  if (snapshot == null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    return null
+  }
+  const o = snapshot as Record<string, unknown>
+  const template = o.template
+  if (!template || typeof template !== 'object') {
+    return null
+  }
+  const t = template as Record<string, unknown>
+  return mergeHeaderConfig(t.headerConfig) as HeaderConfig
 }
 
 function toBlockWithItemsDto(row: SelfInspectionBlockWithItems) {
@@ -361,12 +453,14 @@ export const projectSelfInspectionService = {
     assertTemplateActiveForCreate(templateRow)
     const blocks = await selfInspectionBlockRepository.findManyByTemplateIdWithItems(templateId)
     const header = mergeHeaderConfig(templateRow.headerConfig) as HeaderConfig
-    validateFilledPayload(header, blocks, filledPayload)
+    const normalizedPayload = normalizeFilledPayloadPhotoIds(filledPayload)
+    validateFilledPayload(header, blocks, normalizedPayload)
+    await validateSelfInspectionPhotoAttachments(projectId, normalizedPayload.photoAttachmentIds)
     const structureSnapshot = buildStructureSnapshotJson(templateRow, blocks)
     const row = await projectSelfInspectionRepository.create({
       projectId,
       templateId,
-      filledPayload: filledPayload as unknown as Prisma.InputJsonValue,
+      filledPayload: normalizedPayload as unknown as Prisma.InputJsonValue,
       structureSnapshot: structureSnapshot as unknown as Prisma.InputJsonValue,
       filledById: user.id,
     })
@@ -383,5 +477,68 @@ export const projectSelfInspectionService = {
       return null
     }
     return toRecordDetailDto(rec)
+  },
+
+  async updateRecord(
+    projectId: string,
+    templateId: string,
+    recordId: string,
+    user: AuthUser,
+    filledPayload: FilledPayloadInput
+  ) {
+    await ensureInspection(projectId, user, 'create')
+    const tenantId = await getProjectTenantId(projectId)
+    await loadTemplateInTenant(templateId, tenantId)
+    await ensureTemplateLinkedToProject(projectId, templateId)
+    const rec = await projectSelfInspectionRepository.findById(recordId)
+    if (!rec || rec.projectId !== projectId || rec.templateId !== templateId) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該查驗紀錄')
+    }
+
+    const snap = rec.structureSnapshot
+    const fromSnapBlocks = snapshotToBlocksForValidation(snap)
+    const fromSnapHeader = headerFromStructureSnapshot(snap)
+    let header: HeaderConfig
+    let blocks: SelfInspectionBlockWithItems[]
+    if (fromSnapBlocks != null && fromSnapBlocks.length > 0 && fromSnapHeader != null) {
+      header = fromSnapHeader
+      blocks = fromSnapBlocks
+    } else {
+      const templateRow = await loadTemplateInTenant(templateId, tenantId)
+      blocks = await selfInspectionBlockRepository.findManyByTemplateIdWithItems(templateId)
+      header = mergeHeaderConfig(templateRow.headerConfig) as HeaderConfig
+    }
+    const normalizedPayload = normalizeFilledPayloadPhotoIds(filledPayload)
+    validateFilledPayload(header, blocks, normalizedPayload)
+    await validateSelfInspectionPhotoAttachments(projectId, normalizedPayload.photoAttachmentIds)
+
+    const n = await projectSelfInspectionRepository.updateFilledPayload(
+      recordId,
+      normalizedPayload as unknown as Prisma.InputJsonValue,
+      user.id
+    )
+    if (n === 0) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該查驗紀錄')
+    }
+    const updated = await projectSelfInspectionRepository.findById(recordId)
+    if (!updated) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該查驗紀錄')
+    }
+    return toRecordDetailDto(updated)
+  },
+
+  async deleteRecord(projectId: string, templateId: string, recordId: string, user: AuthUser) {
+    await ensureInspection(projectId, user, 'delete')
+    const tenantId = await getProjectTenantId(projectId)
+    await loadTemplateInTenant(templateId, tenantId)
+    await ensureTemplateLinkedToProject(projectId, templateId)
+    const rec = await projectSelfInspectionRepository.findById(recordId)
+    if (!rec || rec.projectId !== projectId || rec.templateId !== templateId) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該查驗紀錄')
+    }
+    const n = await projectSelfInspectionRepository.softDelete(recordId, user.id)
+    if (n === 0) {
+      throw new AppError(404, 'NOT_FOUND', '找不到該查驗紀錄')
+    }
   },
 }

@@ -9,6 +9,7 @@ import {
   type DefectListItem,
   type DefectExecutionRecordRow,
 } from './defect-improvement.repository.js'
+import type { Prisma } from '@prisma/client'
 import type {
   CreateDefectImprovementBody,
   UpdateDefectImprovementBody,
@@ -48,6 +49,56 @@ async function linkAttachments(
   })
 }
 
+const MAX_LINKED_ATTACHMENTS = 30
+
+async function replaceLinkedAttachments(
+  projectId: string,
+  businessId: string,
+  category: string,
+  newIds: string[]
+): Promise<void> {
+  const unique = [...new Set(newIds)]
+  if (unique.length > MAX_LINKED_ATTACHMENTS) {
+    throw new AppError(400, 'VALIDATION_ERROR', `附件最多 ${MAX_LINKED_ATTACHMENTS} 個`)
+  }
+  if (unique.length > 0) {
+    const rows = await prisma.attachment.findMany({
+      where: { id: { in: unique }, projectId, ...notDeleted },
+      select: { id: true, category: true, businessId: true },
+    })
+    if (rows.length !== unique.length) {
+      throw new AppError(400, 'VALIDATION_ERROR', '附件 id 無效或已刪除')
+    }
+    for (const r of rows) {
+      const ok = r.category === category && (r.businessId == null || r.businessId === businessId)
+      if (!ok) {
+        throw new AppError(400, 'VALIDATION_ERROR', '附件無法用於此缺失／紀錄')
+      }
+    }
+  }
+
+  const unlinkWhere: Prisma.AttachmentWhereInput = {
+    projectId,
+    businessId,
+    category,
+    ...notDeleted,
+  }
+  if (unique.length > 0) {
+    unlinkWhere.id = { notIn: unique }
+  }
+  await prisma.attachment.updateMany({
+    where: unlinkWhere,
+    data: { businessId: null },
+  })
+
+  if (unique.length > 0) {
+    await prisma.attachment.updateMany({
+      where: { id: { in: unique }, projectId, ...notDeleted },
+      data: { businessId, category },
+    })
+  }
+}
+
 export type AttachmentMeta = {
   id: string
   fileName: string
@@ -63,7 +114,7 @@ async function getAttachmentsByBusiness(
   category: string
 ): Promise<AttachmentMeta[]> {
   const list = await prisma.attachment.findMany({
-    where: { projectId, businessId, category },
+    where: { projectId, businessId, category, ...notDeleted },
     orderBy: { createdAt: 'asc' },
     select: { id: true, fileName: true, fileSize: true, mimeType: true, createdAt: true },
   })
@@ -127,7 +178,12 @@ export const defectImprovementService = {
     if (records.length === 0) return []
     const recordIds = records.map((r) => r.id)
     const allPhotos = await prisma.attachment.findMany({
-      where: { projectId, category: DEFECT_RECORD_PHOTO_CATEGORY, businessId: { in: recordIds } },
+      where: {
+        projectId,
+        category: DEFECT_RECORD_PHOTO_CATEGORY,
+        businessId: { in: recordIds },
+        ...notDeleted,
+      },
       orderBy: { createdAt: 'asc' },
       select: { id: true, fileName: true, fileSize: true, mimeType: true, createdAt: true, businessId: true },
     })
@@ -193,7 +249,7 @@ export const defectImprovementService = {
     if (!existing || existing.projectId !== projectId) {
       throw new AppError(404, 'NOT_FOUND', '找不到該缺失改善')
     }
-    return defectImprovementRepository.update(defectId, {
+    const row = await defectImprovementRepository.update(defectId, {
       ...(body.description !== undefined && { description: body.description.trim() }),
       ...(body.discoveredBy !== undefined && { discoveredBy: body.discoveredBy.trim() }),
       ...(body.priority !== undefined && { priority: body.priority }),
@@ -201,6 +257,10 @@ export const defectImprovementService = {
       ...(body.location !== undefined && { location: body.location?.trim() || null }),
       ...(body.status !== undefined && { status: body.status }),
     })
+    if (body.attachmentIds !== undefined) {
+      await replaceLinkedAttachments(projectId, defectId, DEFECT_PHOTO_CATEGORY, body.attachmentIds)
+    }
+    return row
   },
 
   async delete(projectId: string, defectId: string, user: AuthUser): Promise<void> {
@@ -253,6 +313,9 @@ export const defectImprovementService = {
     const updated = await defectExecutionRecordRepository.updateContent(recordId, body.content.trim())
     if (!updated) {
       throw new AppError(404, 'NOT_FOUND', '找不到該執行紀錄')
+    }
+    if (body.attachmentIds !== undefined) {
+      await replaceLinkedAttachments(projectId, recordId, DEFECT_RECORD_PHOTO_CATEGORY, body.attachmentIds)
     }
     return updated
   },

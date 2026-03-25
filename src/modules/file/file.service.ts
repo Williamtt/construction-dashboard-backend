@@ -37,6 +37,8 @@ async function ensureProjectFile(
     await assertProjectModuleAction(user, projectId, 'construction.pcces', action)
   } else if (category === FILE_CATEGORY_PROGRESS_PLAN_IMPORT) {
     await assertProjectModuleAction(user, projectId, 'construction.progress', action)
+  } else if (category === 'self_inspection_photo') {
+    await assertProjectModuleAction(user, projectId, 'construction.inspection', action)
   } else {
     await assertProjectModuleAction(user, projectId, 'construction.upload', action)
   }
