@@ -173,5 +173,7 @@ npm start        # node dist/index.js
 
 ## 相關文件
 
+- **`docs/README.md`** — 文件索引（部署、權限、攝影機管線、領域設計等）
 - `docs/docker-database.md` — 本機 PostgreSQL Docker
 - `docs/soft-delete.md` — 軟刪除與查詢約定（若適用）
+- `docs/deployment-setup-guide.md` — Railway／Vercel／R2 架設教學

@@ -149,7 +149,7 @@
 ## 五、文件與維運參考
 
 - 攝影機串流驗證步驟：`docs/camera-stream-verification.md`
-- 系統設計與 Phase 3 規劃：`docs/remote-camera-system-design.md`、`docs/remote-camera-phase3-plan.md`
+- 系統設計與管線說明：`docs/remote-camera-system-design.md`、`docs/camera-streaming-pipeline-summary.md`
 - 環境變數範例：後端 `.env.example`、前端 `.env.example`
 
 ---

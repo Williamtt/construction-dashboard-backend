@@ -321,7 +321,7 @@
 | `production-release-checklist.md` | 發布前檢查、攝影機功能確認、部署架構細節 |
 | `camera-stream-verification.md` | 攝影機串流驗證步驟 |
 | `remote-camera-system-design.md` | 攝影機系統設計 |
-| `remote-camera-phase3-plan.md` | Phase 3 實作與環境變數 |
+| `camera-streaming-pipeline-summary.md` | 攝影機管線、環境變數與踩坑 |
 | `multi-tenant-and-product-gap-analysis.md` | 多租戶與單租／客戶端部署考量 |
 | 後端 `.env.example` | 環境變數範例與註解 |
 | 前端 `.env.example` | VITE_API_URL 範例 |

@@ -27,6 +27,10 @@ alwaysApply: true
 - `src/schemas/` - Zod schemas（create/update 等）
 - `src/lib/` - Prisma、DB 等基礎設施
 
+## 文件
+
+- API、部署、攝影機管線、領域設計等索引：**`docs/README.md`**（與 `.cursor/rules` 互補）。
+
 ## 環境變數
 
 - `PORT`, `NODE_ENV`

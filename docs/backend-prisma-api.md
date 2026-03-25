@@ -172,7 +172,7 @@ Base URL：`/api/v1`。成功回應格式：`{ data, meta? }`；錯誤：`{ erro
 
 帶 `projectId` 的警報 API（`GET /api/v1/alerts/current`、`/history`）需 **`construction.monitor` read**。
 
-詳見 **`docs/permission-architecture-implementation-plan.md`**、**`docs/project-module-permissions.md`**（新增模組 checklist）。
+詳見 **`docs/project-module-permissions.md`**（新增模組 checklist、與前端常數對齊方式）。
 
 ### 3.8 PCCES／eTender XML 匯入（施工日誌工項來源）
 

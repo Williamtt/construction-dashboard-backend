@@ -94,4 +94,4 @@ can('construction.defect', 'create')
 | 專案准入 | `shared/project-access.ts` → `assertCanAccessProject` |
 | 租戶範本 API | `admin` 路由 + `project-permission` module |
 | 專案覆寫 API | `projects/:projectId/members/:userId/permissions` |
-| 規劃摘要 | `docs/permission-architecture-implementation-plan.md` |
+| 文件索引 | `docs/README.md` |
