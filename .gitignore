@@ -19,6 +19,9 @@ npm-debug.log*
 .idea
 .DS_Store
 
+# Cursor (local indexing rules; do not commit)
+.cursorignore
+
 /src/generated/prisma
 
 # 本地上傳檔案儲存目錄（勿提交）
