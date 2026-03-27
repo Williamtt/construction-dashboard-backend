@@ -1,3 +1,6 @@
+/**
+ * @routeGuard projectPermissionsInService — 見 construction-daily-log.service assertProjectModuleAction
+ */
 import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { constructionDailyLogController } from '../modules/construction-daily-log/index.js'

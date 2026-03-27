@@ -1,3 +1,6 @@
+/**
+ * @routeGuard projectPermissionsInService — 見 project-self-inspection.service assertProjectModuleAction
+ */
 import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { projectSelfInspectionController } from '../modules/project-self-inspection/index.js'

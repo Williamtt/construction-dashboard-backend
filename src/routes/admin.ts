@@ -17,6 +17,7 @@ import { AppError } from '../shared/errors.js'
 import { notDeleted, softDeleteSet } from '../shared/soft-delete.js'
 import { projectPermissionController } from '../modules/project-permission/project-permission.controller.js'
 import { getTenantModuleEntitlementsReadDto } from '../modules/tenant-module-entitlement/tenant-module-entitlement.service.js'
+import { recordAuditMutation } from '../modules/audit-log/audit-log.service.js'
 
 export const adminRouter = Router()
 
@@ -122,6 +123,14 @@ adminRouter.patch(
       data: { name: parsed.data.name },
       select: { id: true, name: true, logoStorageKey: true, slug: true, status: true, updatedAt: true },
     })
+    await recordAuditMutation(req, {
+      action: 'admin.company_settings.update',
+      resourceType: 'tenant',
+      resourceId: tenantId,
+      tenantId,
+      before: { id: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status },
+      after: { id: updated.id, name: updated.name, slug: updated.slug, status: updated.status },
+    })
     res.status(200).json({ data: updated })
   })
 )
@@ -162,6 +171,14 @@ adminRouter.post(
     await prisma.tenant.update({
       where: { id: tenantId },
       data: { logoStorageKey: storageKey },
+    })
+    await recordAuditMutation(req, {
+      action: 'admin.company_logo.upload',
+      resourceType: 'tenant',
+      resourceId: tenantId,
+      tenantId,
+      before: { logoStorageKey: tenant.logoStorageKey },
+      after: { logoStorageKey: storageKey },
     })
     res.status(200).json({ data: { logoStorageKey: storageKey } })
   })
@@ -244,7 +261,16 @@ adminRouter.delete(
     if (!projectId) throw new AppError(400, 'BAD_REQUEST', '缺少專案 id')
     const project = await prisma.project.findFirst({
       where: { id: projectId, ...notDeleted },
-      select: { id: true, tenantId: true },
+      select: {
+        id: true,
+        tenantId: true,
+        name: true,
+        code: true,
+        description: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     })
     if (!project) {
       throw new AppError(404, 'NOT_FOUND', '找不到該專案')
@@ -255,6 +281,13 @@ adminRouter.delete(
     await prisma.project.update({
       where: { id: projectId },
       data: softDeleteSet(user.id),
+    })
+    await recordAuditMutation(req, {
+      action: 'admin.project.soft_delete',
+      resourceType: 'project',
+      resourceId: projectId,
+      tenantId: project.tenantId,
+      before: project,
     })
     res.status(200).json({ data: { id: projectId } })
   })
@@ -416,14 +449,24 @@ adminRouter.patch(
       })
       return
     }
-    const target = await prisma.user.findFirst({
+    const beforeUser = await prisma.user.findFirst({
       where: { id: targetId, ...notDeleted },
-      select: { id: true, tenantId: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        systemRole: true,
+        memberType: true,
+        status: true,
+        tenantId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     })
-    if (!target) {
+    if (!beforeUser) {
       throw new AppError(404, 'NOT_FOUND', '找不到該使用者')
     }
-    if (user.systemRole !== 'platform_admin' && user.tenantId !== target.tenantId) {
+    if (user.systemRole !== 'platform_admin' && user.tenantId !== beforeUser.tenantId) {
       throw new AppError(403, 'FORBIDDEN', '僅能更新本租戶成員')
     }
     const updateData: Parameters<typeof prisma.user.update>[0]['data'] = {}
@@ -465,6 +508,14 @@ adminRouter.patch(
         updatedAt: true,
       },
     })
+    await recordAuditMutation(req, {
+      action: 'admin.user.update',
+      resourceType: 'user',
+      resourceId: targetId,
+      tenantId: updated.tenantId,
+      before: beforeUser,
+      after: updated,
+    })
     res.status(200).json({ data: updated })
   })
 )
@@ -481,7 +532,17 @@ adminRouter.delete(
     }
     const target = await prisma.user.findFirst({
       where: { id: targetId, ...notDeleted },
-      select: { id: true, tenantId: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        systemRole: true,
+        memberType: true,
+        tenantId: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     })
     if (!target) {
       throw new AppError(404, 'NOT_FOUND', '找不到該使用者')
@@ -492,6 +553,13 @@ adminRouter.delete(
     await prisma.user.update({
       where: { id: targetId },
       data: softDeleteSet(user.id),
+    })
+    await recordAuditMutation(req, {
+      action: 'admin.user.soft_delete',
+      resourceType: 'user',
+      resourceId: targetId,
+      tenantId: target.tenantId,
+      before: target,
     })
     res.status(200).json({ data: { id: targetId } })
   })

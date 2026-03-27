@@ -1,8 +1,7 @@
 import type { Request, Response } from 'express'
-import type { Prisma } from '@prisma/client'
 import { createProjectSchema, updateProjectSchema } from '../../schemas/project.js'
 import { parsePageLimit } from '../../shared/utils/pagination.js'
-import { recordAudit } from '../audit-log/audit-log.service.js'
+import { recordAudit, recordAuditMutation } from '../audit-log/audit-log.service.js'
 import { projectService } from './project.service.js'
 
 export const projectController = {
@@ -95,12 +94,13 @@ export const projectController = {
       }
       return out
     }
-    await recordAudit(req, {
+    await recordAuditMutation(req, {
       action: 'project.update',
       resourceType: 'project',
       resourceId: project.id,
       tenantId: project.tenantId,
-      details: { before: toSnapshot(beforeProject), after: toSnapshot(project) } as Prisma.InputJsonValue,
+      before: toSnapshot(beforeProject),
+      after: toSnapshot(project),
     })
     res.status(200).json({ data: project })
   },

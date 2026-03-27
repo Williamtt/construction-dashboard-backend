@@ -11,7 +11,7 @@ import { asyncHandler } from '../shared/utils/async-handler.js'
 import { AppError } from '../shared/errors.js'
 import { platformAdminMonitoringRouter } from './platform-admin-monitoring.js'
 import { platformAdminAnnouncementsRouter } from './platform-admin-announcements.js'
-import { recordAudit } from '../modules/audit-log/audit-log.service.js'
+import { recordAudit, recordAuditMutation } from '../modules/audit-log/audit-log.service.js'
 import { fileRepository } from '../modules/file/file.repository.js'
 import { updatePlatformSettingsSchema } from '../schemas/platform-setting.js'
 import { storage } from '../lib/storage.js'
@@ -130,16 +130,20 @@ platformAdminRouter.put(
       })
       return
     }
+    const beforeEnt = await getTenantModuleEntitlementsReadDto(id)
     const disabledModuleIds = await replaceTenantModuleDisables(
       id,
       parsed.data.disabledModuleIds as PermissionModuleId[]
     )
-    await recordAudit(req, {
+    const afterEnt = await getTenantModuleEntitlementsReadDto(id)
+    await recordAuditMutation(req, {
       action: 'tenant.module_entitlements.replace',
       resourceType: 'tenant',
       resourceId: id,
       tenantId: id,
-      details: { disabledModuleIds },
+      before: beforeEnt,
+      after: afterEnt,
+      extra: { disabledModuleIdsResult: disabledModuleIds },
     })
     res.status(200).json({ data: { disabledModuleIds, moduleEntitlementsGranted: true } })
   })
@@ -249,7 +253,14 @@ platformAdminRouter.patch(
         ...(storageQuotaMb !== undefined && { storageQuotaMb }),
       },
     })
-    await recordAudit(req, { action: 'tenant.update', resourceType: 'tenant', resourceId: tenant.id, tenantId: tenant.id })
+    await recordAuditMutation(req, {
+      action: 'tenant.update',
+      resourceType: 'tenant',
+      resourceId: tenant.id,
+      tenantId: tenant.id,
+      before: existing,
+      after: tenant,
+    })
     res.status(200).json({ data: tenant })
   })
 )
@@ -268,6 +279,13 @@ platformAdminRouter.delete(
       throw new AppError(404, 'NOT_FOUND', '找不到該租戶')
     }
     await prisma.tenant.update({ where: { id }, data: softDeleteSet(actor.id) })
+    await recordAuditMutation(req, {
+      action: 'tenant.soft_delete',
+      resourceType: 'tenant',
+      resourceId: id,
+      tenantId: id,
+      before: tenant,
+    })
     res.status(200).json({ data: { id } })
   })
 )
@@ -330,7 +348,16 @@ platformAdminRouter.delete(
     if (!projectId) throw new AppError(400, 'BAD_REQUEST', '缺少專案 id')
     const project = await prisma.project.findFirst({
       where: { id: projectId, ...notDeleted },
-      select: { id: true },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        description: true,
+        status: true,
+        tenantId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     })
     if (!project) {
       throw new AppError(404, 'NOT_FOUND', '找不到該專案')
@@ -338,6 +365,13 @@ platformAdminRouter.delete(
     await prisma.project.update({
       where: { id: projectId },
       data: softDeleteSet(actor.id),
+    })
+    await recordAuditMutation(req, {
+      action: 'project.soft_delete',
+      resourceType: 'project',
+      resourceId: projectId,
+      tenantId: project.tenantId,
+      before: project,
     })
     res.status(200).json({ data: { id: projectId } })
   })
@@ -412,7 +446,17 @@ platformAdminRouter.delete(
     }
     const target = await prisma.user.findFirst({
       where: { id: targetId, ...notDeleted },
-      select: { id: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        systemRole: true,
+        memberType: true,
+        tenantId: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     })
     if (!target) {
       throw new AppError(404, 'NOT_FOUND', '找不到該使用者')
@@ -420,6 +464,13 @@ platformAdminRouter.delete(
     await prisma.user.update({
       where: { id: targetId },
       data: softDeleteSet(user.id),
+    })
+    await recordAuditMutation(req, {
+      action: 'user.soft_delete',
+      resourceType: 'user',
+      resourceId: targetId,
+      tenantId: target.tenantId,
+      before: target,
     })
     res.status(200).json({ data: { id: targetId } })
   })
@@ -444,7 +495,14 @@ platformAdminRouter.patch(
       where: { id: userId },
       data: { passwordHash },
     })
-    await recordAudit(req, { action: 'user.password_reset', resourceType: 'user', resourceId: userId, tenantId: user.tenantId })
+    await recordAuditMutation(req, {
+      action: 'user.password_reset',
+      resourceType: 'user',
+      resourceId: userId,
+      tenantId: user.tenantId,
+      before: { id: user.id, email: user.email },
+      after: { ok: true },
+    })
     res.status(200).json({ data: { ok: true } })
   })
 )
@@ -500,6 +558,26 @@ async function setSetting(key: string, value: string): Promise<void> {
   })
 }
 
+async function readPlatformSettingsSnapshot(): Promise<{
+  maintenanceMode: boolean
+  defaultUserLimit: number | null
+  defaultStorageQuotaMb: number | null
+  defaultFileSizeLimitMb: number | null
+}> {
+  const [mm, dul, dsq, dfs] = await Promise.all([
+    getSetting(SETTING_KEYS.MAINTENANCE_MODE),
+    getSetting(SETTING_KEYS.DEFAULT_USER_LIMIT),
+    getSetting(SETTING_KEYS.DEFAULT_STORAGE_QUOTA_MB),
+    getSetting(SETTING_KEYS.DEFAULT_FILE_SIZE_LIMIT_MB),
+  ])
+  return {
+    maintenanceMode: mm === 'true',
+    defaultUserLimit: dul != null && dul !== '' ? Number(dul) : null,
+    defaultStorageQuotaMb: dsq != null && dsq !== '' ? Number(dsq) : null,
+    defaultFileSizeLimitMb: dfs != null && dfs !== '' ? Number(dfs) : null,
+  }
+}
+
 /** GET /api/v1/platform-admin/settings */
 platformAdminRouter.get(
   '/settings',
@@ -532,6 +610,7 @@ platformAdminRouter.patch(
       })
       return
     }
+    const beforeSettings = await readPlatformSettingsSnapshot()
     const { maintenanceMode, defaultUserLimit, defaultStorageQuotaMb, defaultFileSizeLimitMb } = parsed.data
     if (maintenanceMode !== undefined) {
       await setSetting(SETTING_KEYS.MAINTENANCE_MODE, maintenanceMode ? 'true' : 'false')
@@ -546,14 +625,21 @@ platformAdminRouter.patch(
       getSetting(SETTING_KEYS.DEFAULT_STORAGE_QUOTA_MB),
       getSetting(SETTING_KEYS.DEFAULT_FILE_SIZE_LIMIT_MB),
     ])
-    res.status(200).json({
-      data: {
-        maintenanceMode: mm === 'true',
-        defaultUserLimit: dul != null && dul !== '' ? Number(dul) : null,
-        defaultStorageQuotaMb: dsq != null && dsq !== '' ? Number(dsq) : null,
-        defaultFileSizeLimitMb: dfs != null && dfs !== '' ? Number(dfs) : null,
-      },
+    const data = {
+      maintenanceMode: mm === 'true',
+      defaultUserLimit: dul != null && dul !== '' ? Number(dul) : null,
+      defaultStorageQuotaMb: dsq != null && dsq !== '' ? Number(dsq) : null,
+      defaultFileSizeLimitMb: dfs != null && dfs !== '' ? Number(dfs) : null,
+    }
+    await recordAuditMutation(req, {
+      action: 'platform.settings.update',
+      resourceType: 'platform_settings',
+      resourceId: 'global',
+      tenantId: null,
+      before: beforeSettings,
+      after: data,
     })
+    res.status(200).json({ data })
   })
 )
 

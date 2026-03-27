@@ -1,3 +1,6 @@
+/**
+ * @routeGuard projectPermissionsInService — 見 issue-risk.service assertProjectModuleAction
+ */
 import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { issueRiskController } from '../modules/issue-risk/index.js'

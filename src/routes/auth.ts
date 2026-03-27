@@ -8,6 +8,7 @@ import { storage } from '../lib/storage.js'
 import { loginSchema, changePasswordSchema, refreshTokenSchema } from '../schemas/auth.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { AppError } from '../shared/errors.js'
+import { recordAuditMutation } from '../modules/audit-log/audit-log.service.js'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { loginLogRepository } from '../modules/login-log/login-log.repository.js'
 import { isMaintenanceMode } from '../middleware/maintenance.js'
@@ -533,6 +534,14 @@ authRouter.patch('/me/password', authMiddleware, async (req: Request, res: Respo
       data: { passwordHash },
     })
     await prisma.refreshToken.deleteMany({ where: { userId: req.user.id } })
+    await recordAuditMutation(req, {
+      action: 'user.self_password_change',
+      resourceType: 'user',
+      resourceId: req.user.id,
+      tenantId: user.tenantId,
+      before: { id: user.id, email: user.email },
+      after: { ok: true },
+    })
     res.status(200).json({ data: { ok: true } })
   } catch (e) {
     console.error('PATCH /auth/me/password', e)

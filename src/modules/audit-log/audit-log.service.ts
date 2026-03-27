@@ -1,6 +1,7 @@
 import type { Request } from 'express'
 import type { Prisma } from '@prisma/client'
 import { auditLogRepository } from './audit-log.repository.js'
+import { auditDetailsBeforeAfter, auditDetailsBeforeOnly, serializeAuditValue } from './audit-snapshot.js'
 
 function getIp(req: Request): string | null {
   const forwarded = req.headers['x-forwarded-for']
@@ -41,4 +42,39 @@ export async function recordAudit(req: Request, params: AuditRecordParams): Prom
   } catch (e) {
     console.error('auditLog.record', params.action, e)
   }
+}
+
+export type RecordAuditMutationParams = {
+  action: string
+  resourceType: string
+  resourceId?: string | null
+  tenantId?: string | null
+  /** 變更前快照（必填） */
+  before: unknown
+  /** 變更後；省略時視為僅記錄刪除前狀態等 */
+  after?: unknown
+  /** 併入 details 的其它欄位（會一併序列化） */
+  extra?: Record<string, unknown>
+}
+
+/**
+ * 變更／刪除稽核：details 固定含 { before, after? }，與專案 update 等一致。
+ */
+export async function recordAuditMutation(req: Request, params: RecordAuditMutationParams): Promise<void> {
+  const base =
+    params.after !== undefined
+      ? auditDetailsBeforeAfter(params.before, params.after)
+      : auditDetailsBeforeOnly(params.before)
+  const details = (
+    params.extra && Object.keys(params.extra).length > 0
+      ? { ...base, extra: serializeAuditValue(params.extra) }
+      : base
+  ) as Prisma.InputJsonValue
+  await recordAudit(req, {
+    action: params.action,
+    resourceType: params.resourceType,
+    resourceId: params.resourceId,
+    tenantId: params.tenantId,
+    details,
+  })
 }

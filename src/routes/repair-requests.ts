@@ -1,3 +1,6 @@
+/**
+ * @routeGuard projectPermissionsInService — 見 repair-request.service assertProjectModuleAction
+ */
 import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { repairRequestController } from '../modules/repair-request/index.js'

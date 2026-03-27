@@ -1,3 +1,6 @@
+/**
+ * @routeGuard projectPermissionsInService — 見 drawing-node.service assertProjectModuleAction
+ */
 import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { drawingNodeController } from '../modules/drawing-node/index.js'

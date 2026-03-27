@@ -1,3 +1,6 @@
+/**
+ * @routeGuard projectPermissionsInService — 見 wbs.service ensureWbs（assertProjectModuleAction）
+ */
 import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { wbsController } from '../modules/wbs/index.js'

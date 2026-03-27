@@ -1,3 +1,6 @@
+/**
+ * @routeGuard projectPermissionsInService — 見 resource.service assertProjectModuleAction
+ */
 import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { resourceController } from '../modules/resource/index.js'

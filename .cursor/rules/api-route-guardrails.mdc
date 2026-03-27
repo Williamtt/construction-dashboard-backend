@@ -1,0 +1,30 @@
+---
+description: 新增／修改專案子路由時的權限與稽核守門
+---
+
+# API 路由守門（專案 `:projectId` 子路由）
+
+## 權限（RBAC）
+
+- 專案範圍 API 必須確保：
+  - `assertCanAccessProject`（通常由 `assertProjectModuleAction` 內含），且
+  - 依功能呼叫 `assertProjectModuleAction(user, projectId, module, action)`（在 **service** 或 **middleware**）。
+- 可選 **路由層** middleware：`src/middleware/project-module-permission.ts` 的 `requireProjectModuleAction(module, action)`。若與 service 重複檢查會多查 DB，擇一即可。
+
+## 稽核（Audit）
+
+- 涉及 **PATCH／PUT／DELETE**（含軟刪）之管理或敏感操作，成功後應呼叫 `recordAudit` 或 `recordAuditMutation`（建議變更類用後者，含一致化的 `details.before`／`after`）。
+- 實作參考：`src/modules/audit-log/audit-log.service.ts`、`recordAuditMutation`。
+
+## CI 註記 `@routeGuard`
+
+- 凡 `src/routes/` 內使用 `Router({ mergeParams: true })` 且掛在 `/projects/:projectId/...` 下的路由檔（除外見 `scripts/check-route-guardrails.mjs` 的 `SKIP`），**檔案前 35 行**必須出現字串 `@routeGuard`，並簡述權限落點（例如 `projectPermissionsInService`）。
+- 執行：`npm run check:route-guardrails`（建議納入 CI）。
+
+## 新增子路由檢查清單
+
+1. [ ] 權限：`assertProjectModuleAction` 或 `requireProjectModuleAction`，模組 id 與前端 `permission-modules` 一致。
+2. [ ] 租戶／專案隔離：不可仅凭 id 讀寫他租戶資料。
+3. [ ] 軟刪：`notDeleted`／`softDeleteSet` 依專案規範。
+4. [ ] 變更稽核：必要時 `recordAuditMutation` + before 快照。
+5. [ ] 路由檔 `@routeGuard` 註記與 `check:route-guardrails` 通過。

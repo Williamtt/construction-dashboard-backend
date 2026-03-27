@@ -1,3 +1,6 @@
+/**
+ * @routeGuard projectPermissionsInService — 見 album.service assertProjectModuleAction
+ */
 import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { albumController } from '../modules/album/index.js'

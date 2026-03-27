@@ -1,3 +1,6 @@
+/**
+ * @routeGuard projectPermissionsInService — 見 construction-valuation.service assertProjectModuleAction
+ */
 import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { constructionValuationController } from '../modules/construction-valuation/index.js'

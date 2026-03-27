@@ -1,3 +1,6 @@
+/**
+ * @routeGuard projectPermissionsInService — 見 project-progress.service assertProjectModuleAction
+ */
 import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { uploadSingleFile } from '../middleware/upload.js'

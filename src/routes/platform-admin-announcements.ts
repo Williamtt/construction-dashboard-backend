@@ -8,6 +8,7 @@ import { createAnnouncementSchema, updateAnnouncementSchema } from '../schemas/a
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { AppError } from '../shared/errors.js'
 import { notDeleted, softDeleteSet } from '../shared/soft-delete.js'
+import { recordAudit, recordAuditMutation } from '../modules/audit-log/audit-log.service.js'
 
 export const platformAdminAnnouncementsRouter = Router()
 
@@ -92,6 +93,12 @@ platformAdminAnnouncementsRouter.post(
         targetTenantIds: targetTenantIdsToJson(targetTenantIds),
       },
     })
+    await recordAudit(req, {
+      action: 'platform_announcement.create',
+      resourceType: 'platform_announcement',
+      resourceId: row.id,
+      tenantId: null,
+    })
     res.status(201).json({ data: row })
   })
 )
@@ -124,6 +131,14 @@ platformAdminAnnouncementsRouter.patch(
     if (n.count === 0) throw new AppError(404, 'NOT_FOUND', '找不到該公告')
     const row = await prisma.platformAnnouncement.findFirst({ where: { id, ...notDeleted } })
     if (!row) throw new AppError(404, 'NOT_FOUND', '找不到該公告')
+    await recordAuditMutation(req, {
+      action: 'platform_announcement.update',
+      resourceType: 'platform_announcement',
+      resourceId: id,
+      tenantId: null,
+      before: existing,
+      after: row,
+    })
     res.status(200).json({ data: row })
   })
 )
@@ -135,11 +150,20 @@ platformAdminAnnouncementsRouter.delete(
     const id = paramId(req)
     const uid = req.user?.id
     if (!uid) throw new AppError(401, 'UNAUTHORIZED', '未授權')
+    const rowBefore = await prisma.platformAnnouncement.findFirst({ where: { id, ...notDeleted } })
+    if (!rowBefore) throw new AppError(404, 'NOT_FOUND', '找不到該公告')
     const n = await prisma.platformAnnouncement.updateMany({
       where: { id, ...notDeleted },
       data: softDeleteSet(uid),
     })
     if (n.count === 0) throw new AppError(404, 'NOT_FOUND', '找不到該公告')
+    await recordAuditMutation(req, {
+      action: 'platform_announcement.soft_delete',
+      resourceType: 'platform_announcement',
+      resourceId: id,
+      tenantId: null,
+      before: rowBefore,
+    })
     res.status(200).json({ data: { ok: true } })
   })
 )

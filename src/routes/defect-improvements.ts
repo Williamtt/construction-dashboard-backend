@@ -1,3 +1,6 @@
+/**
+ * @routeGuard projectPermissionsInService — 見 defect-improvement.service assertProjectModuleAction
+ */
 import { Router } from 'express'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { defectImprovementController } from '../modules/defect-improvement/index.js'
