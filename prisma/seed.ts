@@ -136,9 +136,9 @@ async function backfillProjectMemberPermissions() {
 async function main() {
   console.log('Seeding...')
 
-  const tenant = await ensureTenantBySlug('default', {
-    name: '預設租戶',
-    slug: 'default',
+  const tenant = await ensureTenantBySlug('tku-civil', {
+    name: '淡江大學土木工程學系',
+    slug: 'tku-civil',
   })
   console.log('Tenant:', tenant.name)
 
