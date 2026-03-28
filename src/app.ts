@@ -6,6 +6,9 @@ import { apiRouter } from './routes/index.js'
 
 const app = express()
 
+// Railway 使用反向代理，需設定 trust proxy
+app.set('trust proxy', 1)
+
 app.use(
   helmet({
     contentSecurityPolicy: false,
