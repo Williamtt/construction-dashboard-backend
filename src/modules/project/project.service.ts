@@ -3,8 +3,16 @@ import { AppError } from '../../shared/errors.js'
 import { notDeleted } from '../../shared/soft-delete.js'
 import { assertCanAccessProject } from '../../shared/project-access.js'
 import { assertProjectModuleAction } from '../project-permission/project-permission.service.js'
-import { assertTenantMayOperateProjectsAndPermissions } from '../tenant-module-entitlement/tenant-module-entitlement.service.js'
+import {
+  assertTenantMayOperateProjectsAndPermissions,
+  clampPermissionRows,
+  getEffectiveDisabledModuleIdsSet,
+} from '../tenant-module-entitlement/tenant-module-entitlement.service.js'
 import { projectRepository, type ProjectListItem } from './project.repository.js'
+import { projectMemberRepository } from '../project-member/project-member.repository.js'
+import { defaultFlagsByProjectRole } from '../project-permission/preset-roles.js'
+import { projectPermissionRepository } from '../project-permission/project-permission.repository.js'
+import { PERMISSION_MODULES } from '../../constants/permission-modules.js'
 import type { CreateProjectBody, UpdateProjectBody } from '../../schemas/project.js'
 
 type AuthUser = {
@@ -111,15 +119,18 @@ export const projectService = {
   },
 
   async create(data: CreateProjectBody, user: AuthUser): Promise<ProjectListItem> {
+    // project_user 需屬於租戶才能建立
     if (user.systemRole === 'project_user') {
-      throw new AppError(403, 'FORBIDDEN', '僅管理員可新增專案')
+      if (!user.tenantId) {
+        throw new AppError(403, 'FORBIDDEN', '無所屬租戶，無法建立專案')
+      }
     }
     const tenantId =
-      user.systemRole === 'tenant_admin'
-        ? user.tenantId
-        : (data.tenantId ?? null)
-    if (user.systemRole === 'tenant_admin' && !tenantId) {
-      throw new AppError(400, 'BAD_REQUEST', '租戶管理員所屬租戶不明')
+      user.systemRole === 'platform_admin'
+        ? (data.tenantId ?? null)
+        : user.tenantId
+    if ((user.systemRole === 'tenant_admin' || user.systemRole === 'project_user') && !tenantId) {
+      throw new AppError(400, 'BAD_REQUEST', '所屬租戶不明')
     }
     if (tenantId) {
       await assertTenantMayOperateProjectsAndPermissions(tenantId)
@@ -146,6 +157,26 @@ export const projectService = {
     } catch {
       // 並發或已存在根節點時略過
     }
+
+    // project_user 建立專案後，自動成為 project_admin 並寫入全權 permissions
+    if (user.systemRole === 'project_user' && tenantId) {
+      await projectMemberRepository.create(project.id, user.id, 'project_admin')
+      const flags = defaultFlagsByProjectRole('project_admin')
+      const rows = PERMISSION_MODULES.map((m) => ({
+        module: m,
+        canCreate: flags[m].canCreate,
+        canRead: flags[m].canRead,
+        canUpdate: flags[m].canUpdate,
+        canDelete: flags[m].canDelete,
+      }))
+      const disabled = await getEffectiveDisabledModuleIdsSet(tenantId)
+      await projectPermissionRepository.createManyProjectPermissions(
+        project.id,
+        user.id,
+        clampPermissionRows(rows, disabled)
+      )
+    }
+
     return project
   },
 
