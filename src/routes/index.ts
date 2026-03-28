@@ -11,6 +11,7 @@ import { adminRouter } from './admin.js'
 import { platformAdminRouter } from './platform-admin.js'
 import { alertsRouter } from './alerts.js'
 import { appMetaRouter } from './app-meta.js'
+import { notificationsRouter } from './notifications.js'
 
 export const apiRouter = Router()
 
@@ -30,3 +31,4 @@ apiRouter.use('/form-templates', authMiddleware, formTemplatesRouter)
 apiRouter.use('/admin', authMiddleware, requireAdmin, adminRouter)
 apiRouter.use('/platform-admin', authMiddleware, requirePlatformAdmin, platformAdminRouter)
 apiRouter.use('/alerts', authMiddleware, alertsRouter)
+apiRouter.use('/notifications', authMiddleware, notificationsRouter)

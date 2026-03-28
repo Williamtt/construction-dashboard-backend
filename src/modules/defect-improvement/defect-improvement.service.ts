@@ -3,6 +3,7 @@ import { AppError } from '../../shared/errors.js'
 import { notDeleted } from '../../shared/soft-delete.js'
 import { assertCanAccessProject } from '../../shared/project-access.js'
 import { assertProjectModuleAction } from '../project-permission/project-permission.service.js'
+import { createNotificationForProjectMembers } from '../notifications/notifications.service.js'
 import {
   defectImprovementRepository,
   defectExecutionRecordRepository,
@@ -235,6 +236,13 @@ export const defectImprovementService = {
     if (body.attachmentIds?.length) {
       await linkAttachments(projectId, body.attachmentIds, defect.id, DEFECT_PHOTO_CATEGORY)
     }
+    createNotificationForProjectMembers(
+      projectId,
+      'defect',
+      '新缺失改善',
+      `${body.discoveredBy} 記錄了新缺失：${body.description.slice(0, 50)}`,
+      `/projects/${projectId}/defect`
+    ).catch(() => {})
     return defect
   },
 

@@ -3,6 +3,7 @@ import { AppError } from '../../shared/errors.js'
 import { notDeleted } from '../../shared/soft-delete.js'
 import { assertCanAccessProject } from '../../shared/project-access.js'
 import { assertProjectModuleAction } from '../project-permission/project-permission.service.js'
+import { createNotificationForProjectAdmins } from '../notifications/notifications.service.js'
 import {
   repairRequestRepository,
   repairExecutionRecordRepository,
@@ -207,6 +208,13 @@ export const repairRequestService = {
     if (body.fileAttachmentIds?.length) {
       await linkAttachments(projectId, body.fileAttachmentIds, repair.id, REPAIR_FILE_CATEGORY)
     }
+    createNotificationForProjectAdmins(
+      projectId,
+      'repair_request',
+      '新報修單',
+      `${body.customerName} 提交了一筆報修：${body.repairContent.slice(0, 50)}`,
+      `/projects/${projectId}/repair`
+    ).catch(() => {})
     return repair
   },
 

@@ -93,6 +93,7 @@ model User {
   constructionDailyLogsCreated ConstructionDailyLog[]     @relation("ConstructionDailyLogCreatedBy")
   constructionValuationsCreated ConstructionValuation[]   @relation("ConstructionValuationCreatedBy")
   refreshTokens               RefreshToken[]
+  notifications               Notification[]
 
   @@index([email])
 }
@@ -410,6 +411,7 @@ model Project {
   resources           ProjectResource[]
   defectImprovements    DefectImprovement[]
   repairRequests                        RepairRequest[]
+  notifications                         Notification[]
   selfInspectionRecords                 SelfInspectionRecord[]
   projectSelfInspectionTemplateLinks    ProjectSelfInspectionTemplateLink[]
   drawingNodes                          DrawingNode[]
@@ -1153,4 +1155,35 @@ model RepairExecutionRecord {
 
   @@index([repairId])
   @@map("repair_execution_records")
+}
+
+// ---------- 通知 ----------
+enum NotificationType {
+  alert_alarm      // 緊急警報（地震、颱風等）
+  alert_attention  // 注意警報（豪雨、高溫等）
+  repair_request   // 新報修單
+  defect           // 新缺失
+  system           // 系統通知
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String           @map("user_id")
+  tenantId    String?          @map("tenant_id")
+  projectId   String?          @map("project_id")
+  type        NotificationType
+  title       String
+  body        String
+  link        String?
+  sourceId    String?          @map("source_id")
+  isRead      Boolean          @default(false) @map("is_read")
+  readAt      DateTime?        @map("read_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@map("notifications")
 }
