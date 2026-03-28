@@ -6,11 +6,13 @@ import crypto from 'crypto'
 import { prisma } from '../lib/db.js'
 import { storage } from '../lib/storage.js'
 import { loginSchema, changePasswordSchema, refreshTokenSchema } from '../schemas/auth.js'
+import { submitApplicationSchema } from '../schemas/application.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { AppError } from '../shared/errors.js'
 import { recordAuditMutation } from '../modules/audit-log/audit-log.service.js'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { loginLogRepository } from '../modules/login-log/login-log.repository.js'
+import { userApplicationService } from '../modules/user-application/user-application.service.js'
 import { isMaintenanceMode } from '../middleware/maintenance.js'
 import { uploadSingleFile } from '../middleware/upload.js'
 
@@ -59,6 +61,45 @@ const loginRateLimiter = rateLimit({
 })
 
 export const authRouter = Router()
+
+// ---------- 帳號申請（公開，無需登入）----------
+
+const applyRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      error: { code: 'TOO_MANY_REQUESTS', message: '申請次數過多，請於 15 分鐘後再試' },
+    })
+  },
+})
+
+/** POST /api/v1/auth/apply — 學生申請帳號（公開，不需登入） */
+authRouter.post(
+  '/apply',
+  applyRateLimiter,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = submitApplicationSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: '欄位驗證失敗',
+          details: parsed.error.flatten(),
+        },
+      })
+      return
+    }
+
+    await userApplicationService.submit(parsed.data)
+
+    res.status(201).json({
+      data: { message: '申請已送出，審核通過後將收到通知信' },
+    })
+  })
+)
 
 /** POST /api/v1/auth/login — 登入，回傳 accessToken 與 user */
 authRouter.post('/login', loginRateLimiter, async (req: Request, res: Response) => {

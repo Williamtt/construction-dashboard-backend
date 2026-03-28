@@ -33,6 +33,7 @@ model Tenant {
   selfInspectionTemplates SelfInspectionTemplate[]
   tenantPermissionTemplates TenantPermissionTemplate[]
   moduleDisables         TenantModuleDisable[]
+  applicationRequests    UserApplicationRequest[]
 
   @@index([slug])
 }
@@ -94,6 +95,7 @@ model User {
   constructionValuationsCreated ConstructionValuation[]   @relation("ConstructionValuationCreatedBy")
   refreshTokens               RefreshToken[]
   notifications               Notification[]
+  reviewedApplications        UserApplicationRequest[] @relation("ApplicationReviewer")
 
   @@index([email])
 }
@@ -1186,4 +1188,30 @@ model Notification {
   @@index([userId, isRead])
   @@index([userId, createdAt])
   @@map("notifications")
+}
+
+// ---------- 帳號申請（學生自助申請，管理員審核後建立 User）----------
+model UserApplicationRequest {
+  id           String    @id @default(cuid())
+  email        String
+  passwordHash String    @map("password_hash")
+  name         String
+  studentId    String?   @map("student_id")   // 學號
+  department   String?                         // 系所／班級
+  status       String    @default("pending")   // pending | approved | rejected
+  tenantId     String    @map("tenant_id")
+
+  reviewedById  String?   @map("reviewed_by_id")
+  reviewedAt    DateTime? @map("reviewed_at")
+  rejectReason  String?   @map("reject_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reviewedBy User?  @relation("ApplicationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([tenantId, status])
+  @@map("user_application_requests")
 }

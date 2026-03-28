@@ -5,6 +5,7 @@
 import { Router, type Request, type Response } from 'express'
 import { prisma } from '../lib/db.js'
 import { createUserSchema, updateUserSchema } from '../schemas/user.js'
+import { rejectApplicationSchema } from '../schemas/application.js'
 import { updateCompanySettingsSchema } from '../schemas/company-settings.js'
 import { userService } from '../modules/user/index.js'
 import { fileRepository } from '../modules/file/file.repository.js'
@@ -18,6 +19,8 @@ import { notDeleted, softDeleteSet } from '../shared/soft-delete.js'
 import { projectPermissionController } from '../modules/project-permission/project-permission.controller.js'
 import { getTenantModuleEntitlementsReadDto } from '../modules/tenant-module-entitlement/tenant-module-entitlement.service.js'
 import { recordAuditMutation } from '../modules/audit-log/audit-log.service.js'
+import { userApplicationRepository } from '../modules/user-application/user-application.repository.js'
+import { userApplicationService } from '../modules/user-application/user-application.service.js'
 
 export const adminRouter = Router()
 
@@ -562,6 +565,124 @@ adminRouter.delete(
       before: target,
     })
     res.status(200).json({ data: { id: targetId } })
+  })
+)
+
+// ---------- 帳號申請管理 ----------
+
+/** GET /api/v1/admin/applications — 帳號申請列表（可篩選 status：pending | approved | rejected） */
+adminRouter.get(
+  '/applications',
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = req.user!
+    const tenantId = user.tenantId ?? (req.query.tenantId as string | undefined)
+    if (!tenantId) throw new AppError(400, 'BAD_REQUEST', '無所屬租戶或未指定租戶')
+    if (user.systemRole !== 'platform_admin' && user.tenantId !== tenantId) {
+      throw new AppError(403, 'FORBIDDEN', '僅能查看本租戶的申請')
+    }
+
+    const status = req.query.status as string | undefined
+    const page = Math.max(1, Number(req.query.page) || 1)
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20))
+    const skip = (page - 1) * limit
+
+    const [data, total] = await Promise.all([
+      userApplicationRepository.findMany({ tenantId, status, skip, take: limit }),
+      userApplicationRepository.count({ tenantId, status }),
+    ])
+
+    res.status(200).json({ data, meta: { page, limit, total } })
+  })
+)
+
+/** GET /api/v1/admin/applications/:id — 單筆申請詳情 */
+adminRouter.get(
+  '/applications/:id',
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = req.user!
+    const id = req.params.id as string
+    const app = await userApplicationRepository.findByIdPublic(id)
+    if (!app) throw new AppError(404, 'NOT_FOUND', '找不到該申請')
+    if (user.systemRole !== 'platform_admin' && user.tenantId !== app.tenantId) {
+      throw new AppError(403, 'FORBIDDEN', '僅能查看本租戶的申請')
+    }
+    res.status(200).json({ data: app })
+  })
+)
+
+/** PATCH /api/v1/admin/applications/:id/approve — 核准申請（自動建立 User 並寄信） */
+adminRouter.patch(
+  '/applications/:id/approve',
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = req.user!
+    const id = req.params.id as string
+
+    // 權限檢查
+    const app = await userApplicationRepository.findByIdPublic(id)
+    if (!app) throw new AppError(404, 'NOT_FOUND', '找不到該申請')
+    if (user.systemRole !== 'platform_admin' && user.tenantId !== app.tenantId) {
+      throw new AppError(403, 'FORBIDDEN', '僅能操作本租戶的申請')
+    }
+
+    const created = await userApplicationService.approve(id, user.id)
+
+    await recordAuditMutation(req, {
+      action: 'admin.application.approve',
+      resourceType: 'user_application_request',
+      resourceId: id,
+      tenantId: app.tenantId,
+      before: { status: 'pending' },
+      after: { status: 'approved', userId: created.id },
+    })
+
+    res.status(200).json({
+      data: {
+        userId: created.id,
+        email: created.email,
+        message: '帳號已建立，確認信已寄出',
+      },
+    })
+  })
+)
+
+/** PATCH /api/v1/admin/applications/:id/reject — 拒絕申請 */
+adminRouter.patch(
+  '/applications/:id/reject',
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = req.user!
+    const id = req.params.id as string
+
+    const parsed = rejectApplicationSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: '欄位驗證失敗',
+          details: parsed.error.flatten(),
+        },
+      })
+      return
+    }
+
+    // 權限檢查
+    const app = await userApplicationRepository.findByIdPublic(id)
+    if (!app) throw new AppError(404, 'NOT_FOUND', '找不到該申請')
+    if (user.systemRole !== 'platform_admin' && user.tenantId !== app.tenantId) {
+      throw new AppError(403, 'FORBIDDEN', '僅能操作本租戶的申請')
+    }
+
+    await userApplicationService.reject(id, user.id, parsed.data.rejectReason)
+
+    await recordAuditMutation(req, {
+      action: 'admin.application.reject',
+      resourceType: 'user_application_request',
+      resourceId: id,
+      tenantId: app.tenantId,
+      before: { status: 'pending' },
+      after: { status: 'rejected', reason: parsed.data.rejectReason },
+    })
+
+    res.status(200).json({ data: { ok: true } })
   })
 )
 
