@@ -21,13 +21,13 @@ export const userApplicationService = {
       throw new AppError(409, 'CONFLICT', '此 Email 已有一筆審核中的申請')
     }
 
-    // 驗證租戶存在且為 active
+    // 用 slug 查詢租戶
     const tenant = await prisma.tenant.findFirst({
-      where: { id: data.tenantId, deletedAt: null, status: 'active' },
+      where: { slug: data.tenantSlug, deletedAt: null, status: 'active' },
       select: { id: true },
     })
     if (!tenant) {
-      throw new AppError(404, 'NOT_FOUND', '找不到該租戶或租戶已停用')
+      throw new AppError(404, 'NOT_FOUND', '租戶代碼無效，請確認後再試')
     }
 
     const passwordHash = await bcrypt.hash(data.password, 10)
@@ -38,7 +38,7 @@ export const userApplicationService = {
       name: data.name,
       studentId: data.studentId ?? null,
       department: data.department ?? null,
-      tenantId: data.tenantId,
+      tenantId: tenant.id,
     })
   },
 

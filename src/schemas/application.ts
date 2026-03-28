@@ -6,7 +6,7 @@ export const submitApplicationSchema = z.object({
   name: z.string().min(1, '請輸入姓名').max(50),
   studentId: z.string().max(20).optional(),
   department: z.string().max(100).optional(),
-  tenantId: z.string().cuid(),
+  tenantSlug: z.string().min(1, '請輸入租戶代碼'),
 })
 
 export type SubmitApplicationBody = z.infer<typeof submitApplicationSchema>
