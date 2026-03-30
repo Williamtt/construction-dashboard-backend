@@ -1,13 +1,29 @@
 /**
  * Email 發送服務。
  *
- * 使用 Resend（需安裝 resend 套件）。
- * 若未設定 RESEND_API_KEY 則退化為 console.log（開發模式）。
+ * 使用 Gmail SMTP（nodemailer + Google App Password）。
+ * 若未設定 SMTP_USER 則退化為 console.log（開發模式）。
+ *
+ * 需要的環境變數：
+ *   SMTP_USER     — Gmail 帳號（如 yourname@gmail.com）
+ *   SMTP_PASS     — Google 應用程式密碼（16 碼）
+ *   EMAIL_FROM    — 寄件者顯示名稱+地址（如 "系統通知 <yourname@gmail.com>"）
+ *   FRONTEND_URL  — 前端網址
  */
+import nodemailer from 'nodemailer'
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY?.trim() || ''
-const EMAIL_FROM = process.env.EMAIL_FROM?.trim() || 'noreply@example.com'
+const SMTP_USER = process.env.SMTP_USER?.trim() || ''
+const SMTP_PASS = process.env.SMTP_PASS?.trim() || ''
+const EMAIL_FROM = process.env.EMAIL_FROM?.trim() || SMTP_USER || 'noreply@example.com'
 const FRONTEND_URL = process.env.FRONTEND_URL?.trim() || 'http://localhost:5175'
+
+const transporter =
+  SMTP_USER && SMTP_PASS
+    ? nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: SMTP_USER, pass: SMTP_PASS },
+      })
+    : null
 
 interface SendEmailParams {
   to: string
@@ -16,27 +32,20 @@ interface SendEmailParams {
 }
 
 async function sendEmail(params: SendEmailParams): Promise<void> {
-  if (!RESEND_API_KEY) {
-    console.log('[Email-Dev] 未設定 RESEND_API_KEY，跳過寄信：')
+  if (!transporter) {
+    console.log('[Email-Dev] 未設定 SMTP_USER/SMTP_PASS，跳過寄信：')
     console.log(`  To: ${params.to}`)
     console.log(`  Subject: ${params.subject}`)
     console.log(`  Body: ${params.html}`)
     return
   }
 
-  const { Resend } = await import('resend')
-  const resend = new Resend(RESEND_API_KEY)
-
-  const { error } = await resend.emails.send({
+  await transporter.sendMail({
     from: EMAIL_FROM,
     to: params.to,
     subject: params.subject,
     html: params.html,
   })
-
-  if (error) {
-    throw new Error(`Resend error: ${JSON.stringify(error)}`)
-  }
 }
 
 /** 核准通知信 */
