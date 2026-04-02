@@ -83,6 +83,14 @@ function segmentItemNoAndRest(segment: string): { itemNo: string; rest: string }
   const trimmed = segment.trim()
   if (!trimmed) return { itemNo: '', rest: '' }
 
+  // 處理括號包住的項次：(一)、(二)、（三）、(1)、(2) 等
+  const mParen = /^[（(]([^）)]+)[）)]\s*/.exec(trimmed)
+  if (mParen) {
+    const inner = mParen[1]!.trim()
+    const rest = stripLeadingNoise(trimmed.slice(mParen[0].length))
+    return { itemNo: inner, rest }
+  }
+
   const digits = leadingDigitRun(trimmed)
   if (digits) {
     const rest = stripLeadingNoise(trimmed.slice(digits.len))
