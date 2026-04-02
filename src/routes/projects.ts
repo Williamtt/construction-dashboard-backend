@@ -20,6 +20,7 @@ import { drawingNodesRouter } from './drawing-nodes.js'
 import { pccesImportsRouter } from './pcces-imports.js'
 import { constructionDailyLogsRouter } from './construction-daily-logs.js'
 import { constructionValuationsRouter } from './construction-valuations.js'
+import { supervisionReportsRouter } from './supervision-reports.js'
 import { projectProgressRouter } from './project-progress.js'
 
 export const projectsRouter = Router()
@@ -53,6 +54,9 @@ projectsRouter.use('/:projectId/construction-daily-logs', constructionDailyLogsR
 
 /** 估驗計價 */
 projectsRouter.use('/:projectId/construction-valuations', constructionValuationsRouter)
+
+/** 公共工程監造報表（監造工程師填寫） */
+projectsRouter.use('/:projectId/supervision-reports', supervisionReportsRouter)
 
 /** 進度管理（S-curve、計畫版本、實際週填） */
 projectsRouter.use('/:projectId/progress', projectProgressRouter)

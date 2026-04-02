@@ -22,6 +22,8 @@ export const PERMISSION_MODULES = [
   'construction.valuation',
   /** 進度管理（S-curve、計畫版本、實際進度週填） */
   'construction.progress',
+  /** 監造報表（監造工程師填寫之公共工程監造報表） */
+  'construction.supervision',
   'construction.defect',
   'construction.photo',
   'repair.overview',

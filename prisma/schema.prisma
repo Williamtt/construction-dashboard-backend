@@ -93,6 +93,7 @@ model User {
   pccesItemChangesCreated     PccesItemChange[]
   constructionDailyLogsCreated ConstructionDailyLog[]     @relation("ConstructionDailyLogCreatedBy")
   constructionValuationsCreated ConstructionValuation[]   @relation("ConstructionValuationCreatedBy")
+  supervisionReportsCreated    SupervisionReport[]        @relation("SupervisionReportCreatedBy")
   refreshTokens               RefreshToken[]
   notifications               Notification[]
   reviewedApplications        UserApplicationRequest[] @relation("ApplicationReviewer")
@@ -421,6 +422,7 @@ model Project {
   pccesImports                          PccesImport[]
   constructionDailyLogs                 ConstructionDailyLog[]
   constructionValuations                ConstructionValuation[]
+  supervisionReports                    SupervisionReport[]
   progressPlans                         ProgressPlan[]
   progressActuals                       ProgressActual[]
 }
@@ -609,6 +611,7 @@ model PccesItem {
   import PccesImport @relation(fields: [importId], references: [id], onDelete: Cascade)
   dailyLogWorkItems ConstructionDailyLogWorkItem[]
   constructionValuationLines ConstructionValuationLine[]
+  supervisionReportWorkItems SupervisionReportWorkItem[]
   excelChanges PccesItemChange[]
 
   @@unique([importId, itemKey])
@@ -771,6 +774,124 @@ model ConstructionDailyLogPersonnelEquipment {
 
   @@index([logId])
   @@map("construction_daily_log_personnel_equipment")
+}
+
+/// 公共工程監造報表主檔（監造工程師填寫；與施工日誌平行但視角不同）
+model SupervisionReport {
+  id        String @id @default(cuid())
+  projectId String @map("project_id")
+
+  /// 表頭
+  reportNo   String?   @map("report_no")
+  weatherAm  String?   @map("weather_am")
+  weatherPm  String?   @map("weather_pm")
+  reportDate DateTime  @map("report_date") @db.Date
+
+  /// 工程基本資料（表上快照）
+  projectName              String    @map("project_name")
+  contractDuration         Int?      @map("contract_duration")
+  startDate                DateTime? @map("start_date") @db.Date
+  plannedCompletionDate    DateTime? @map("planned_completion_date") @db.Date
+  actualCompletionDate     DateTime? @map("actual_completion_date") @db.Date
+  contractChangeCount      Int?      @map("contract_change_count")
+  extensionDays            Int?      @map("extension_days")
+  originalContractAmount   Decimal?  @map("original_contract_amount") @db.Decimal(18, 2)
+  designFee                Decimal?  @map("design_fee") @db.Decimal(18, 2)
+  contractTotal            Decimal?  @map("contract_total") @db.Decimal(18, 2)
+
+  /// 進度（施工＋全案）
+  constructionPlannedProgress Decimal? @map("construction_planned_progress") @db.Decimal(6, 2)
+  constructionActualProgress  Decimal? @map("construction_actual_progress") @db.Decimal(6, 2)
+  overallPlannedProgress      Decimal? @map("overall_planned_progress") @db.Decimal(6, 2)
+  overallActualProgress       Decimal? @map("overall_actual_progress") @db.Decimal(6, 2)
+
+  /// 一、工程進行情況（含約定之重要施工項目及數量）→ 由 workItems 呈現，無獨立欄位
+
+  /// 二、監督施工查驗（文字備註；明細見 inspections）
+  inspectionNotes String @default("") @map("inspection_notes") @db.Text
+
+  /// 三、材料規格品質查核（文字備註；明細見 materialChecks）
+  materialQualityNotes String @default("") @map("material_quality_notes") @db.Text
+
+  /// 四、職安衛生督導
+  preWorkCheckCompleted Boolean @default(false) @map("pre_work_check_completed")
+  safetyNotes           String  @default("") @map("safety_notes") @db.Text
+
+  /// 五、其他約定監造事項
+  otherSupervisionNotes String @default("") @map("other_supervision_notes") @db.Text
+
+  /// 簽章
+  supervisorSigned Boolean @default(false) @map("supervisor_signed")
+
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  deletedById String?   @map("deleted_by_id")
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("SupervisionReportCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  inspections    SupervisionReportInspection[]
+  materialChecks SupervisionReportMaterialCheck[]
+  workItems      SupervisionReportWorkItem[]
+
+  @@index([projectId])
+  @@index([projectId, reportDate(sort: Desc)])
+  @@map("supervision_reports")
+}
+
+/// 監造報表（二）施工查驗紀錄
+model SupervisionReportInspection {
+  id        String @id @default(cuid())
+  reportId  String @map("report_id")
+  sortOrder Int    @default(0) @map("sort_order")
+  /// random_check | civil | mep | deficiency
+  category    String @map("category")
+  description String @map("description") @db.Text
+
+  report SupervisionReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@map("supervision_report_inspections")
+}
+
+/// 監造報表（三）材料查核紀錄
+model SupervisionReportMaterialCheck {
+  id        String @id @default(cuid())
+  reportId  String @map("report_id")
+  sortOrder Int    @default(0) @map("sort_order")
+  /// incoming | secondary | joint
+  category    String  @map("category")
+  description String  @map("description") @db.Text
+  referenceNo String  @default("") @map("reference_no")
+
+  report SupervisionReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@map("supervision_report_material_checks")
+}
+
+/// 監造報表：完成工程詳細表（PCCES 工項每日／累計完成數量）
+model SupervisionReportWorkItem {
+  id        String  @id @default(cuid())
+  reportId  String  @map("report_id")
+  sortOrder Int     @default(0) @map("sort_order")
+  /// 綁定 PCCES general 列時供累計聚合；手填列為 null
+  pccesItemId    String? @map("pcces_item_id")
+  workItemName   String  @map("work_item_name")
+  unit           String
+  contractQty    Decimal @map("contract_qty") @db.Decimal(18, 4)
+  dailyCompletedQty    Decimal @map("daily_completed_qty") @db.Decimal(18, 4)
+  accumulatedCompletedQty Decimal @map("accumulated_completed_qty") @db.Decimal(18, 4)
+  remark         String  @default("")
+
+  report    SupervisionReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  pccesItem PccesItem?        @relation(fields: [pccesItemId], references: [id], onDelete: SetNull)
+
+  @@index([reportId])
+  @@index([pccesItemId])
+  @@map("supervision_report_work_items")
 }
 
 /// 專案估驗計價主檔（每次估驗一筆；明細為快照，可綁定 PCCES general 工項）
