@@ -1,3 +1,3 @@
--- AlterTable: add contractNo and ownerAgency to projects
-ALTER TABLE "projects" ADD COLUMN "contract_no" TEXT;
-ALTER TABLE "projects" ADD COLUMN "owner_agency" TEXT;
+-- AlterTable: add contractNo and ownerAgency to Project
+ALTER TABLE "Project" ADD COLUMN "contract_no" TEXT;
+ALTER TABLE "Project" ADD COLUMN "owner_agency" TEXT;
