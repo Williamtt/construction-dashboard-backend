@@ -29,7 +29,11 @@ export const supervisionReportController = {
   async defaults(req: Request, res: Response) {
     if (!req.user) throw new AppError(401, 'UNAUTHORIZED', '請先登入')
     const projectId = getProjectId(req)
-    const data = await supervisionReportService.getFormDefaults(projectId, req.user)
+    const reportDate =
+      typeof req.query.reportDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.reportDate)
+        ? req.query.reportDate
+        : undefined
+    const data = await supervisionReportService.getFormDefaults(projectId, req.user, reportDate)
     res.status(200).json({ data })
   },
 

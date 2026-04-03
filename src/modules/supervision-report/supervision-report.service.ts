@@ -13,6 +13,7 @@ import {
   isStructuralLeaf,
   parentItemKeysWithChildren,
 } from '../pcces-import/pcces-item-tree.js'
+import { projectProgressRepository } from '../project-progress/project-progress.repository.js'
 import { supervisionReportRepository } from './supervision-report.repository.js'
 
 type AuthUser = {
@@ -298,7 +299,7 @@ export const supervisionReportService = {
     return { ok: true as const }
   },
 
-  async getFormDefaults(projectId: string, user: AuthUser) {
+  async getFormDefaults(projectId: string, user: AuthUser, reportDate?: string) {
     await assertProjectModuleAction(user, projectId, 'construction.supervision', 'read')
     const p = await prisma.project.findFirst({
       where: { id: projectId, ...notDeleted },
@@ -309,16 +310,50 @@ export const supervisionReportService = {
         startDate: true,
         plannedDurationDays: true,
         plannedEndDate: true,
+        revisedEndDate: true,
       },
     })
     if (!p) throw new AppError(404, 'NOT_FOUND', '找不到專案')
+
+    // 工期展延天數：累計核定展延天數
+    const extensionSum = await prisma.projectScheduleAdjustment.aggregate({
+      where: { projectId, status: 'approved', type: 'extension', deletedAt: null },
+      _sum: { approvedDays: true },
+    })
+
+    // 契約變更次數：已核定 PCCES 匯入次數 - 1（第一次為原始合約）
+    const pccesCount = await prisma.pccesImport.count({
+      where: { projectId, approvedAt: { not: null }, deletedAt: null },
+    })
+
+    // 施工預定進度：依填報日期從進度計畫插值
+    let constructionPlannedProgress: string | null = null
+    if (reportDate && /^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
+      const reportDateObj = new Date(`${reportDate}T12:00:00.000Z`)
+      const knots = await projectProgressRepository.getProgressPlanCumulativeKnotsForLogDate(
+        projectId,
+        reportDateObj
+      )
+      if (knots?.length) {
+        // 找填報日期當期或之前最近一期的累計預定 %
+        const match = [...knots].reverse().find((k) => k.periodDate <= reportDate)
+        constructionPlannedProgress = match?.cumulativePlanned ?? knots[0]?.cumulativePlanned ?? null
+      }
+    }
+
     return {
       projectName: p.name,
       contractorName: p.contractor ?? '',
       supervisionUnit: p.supervisionUnit ?? '',
       startDate: p.startDate ? formatDateOnlyUtc(p.startDate) : null,
       contractDuration: p.plannedDurationDays ?? null,
-      plannedCompletionDate: p.plannedEndDate ? formatDateOnlyUtc(p.plannedEndDate) : null,
+      // 優先用含展延的竣工日，fallback 到原預定完工日
+      plannedCompletionDate: (p.revisedEndDate ?? p.plannedEndDate)
+        ? formatDateOnlyUtc((p.revisedEndDate ?? p.plannedEndDate)!)
+        : null,
+      extensionDays: extensionSum._sum.approvedDays ?? 0,
+      contractChangeCount: Math.max(0, pccesCount - 1),
+      constructionPlannedProgress,
     }
   },
 
