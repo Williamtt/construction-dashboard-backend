@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/db.js'
 import { notDeleted } from '../../shared/soft-delete.js'
 
@@ -22,6 +23,8 @@ const projectSelect = {
   siteManager: true,
   contactPhone: true,
   projectStaff: true,
+  originalContractAmount: true,
+  designFee: true,
 } as const
 
 export type ProjectListItem = {
@@ -45,6 +48,8 @@ export type ProjectListItem = {
   siteManager: string | null
   contactPhone: string | null
   projectStaff: string | null
+  originalContractAmount: Prisma.Decimal | null
+  designFee: Prisma.Decimal | null
 }
 
 export const projectRepository = {
@@ -137,6 +142,8 @@ export const projectRepository = {
       siteManager: string | null
       contactPhone: string | null
       projectStaff: string | null
+      originalContractAmount: Prisma.Decimal | null
+      designFee: Prisma.Decimal | null
     }>
   ) {
     return prisma.project.update({
@@ -158,6 +165,8 @@ export const projectRepository = {
         ...(data.siteManager !== undefined && { siteManager: data.siteManager }),
         ...(data.contactPhone !== undefined && { contactPhone: data.contactPhone }),
         ...(data.projectStaff !== undefined && { projectStaff: data.projectStaff }),
+        ...(data.originalContractAmount !== undefined && { originalContractAmount: data.originalContractAmount }),
+        ...(data.designFee !== undefined && { designFee: data.designFee }),
       },
       select: projectSelect,
     }) as Promise<ProjectListItem>

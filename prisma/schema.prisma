@@ -398,6 +398,8 @@ model Project {
   siteManager    String?  @map("site_manager")      // 工地負責人
   contactPhone   String?  @map("contact_phone")    // 聯絡電話
   projectStaff   String?  @map("project_staff")    // 專案工程人員
+  originalContractAmount Decimal? @map("original_contract_amount") @db.Decimal(18, 2) // 原契約工程費
+  designFee              Decimal? @map("design_fee") @db.Decimal(18, 2)               // 原契約設計相關費
   deletedAt      DateTime? @map("deleted_at")
   deletedById    String?   @map("deleted_by_id")
 

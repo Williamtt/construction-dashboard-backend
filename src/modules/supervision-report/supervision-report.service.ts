@@ -311,6 +311,8 @@ export const supervisionReportService = {
         plannedDurationDays: true,
         plannedEndDate: true,
         revisedEndDate: true,
+        originalContractAmount: true,
+        designFee: true,
       },
     })
     if (!p) throw new AppError(404, 'NOT_FOUND', '找不到專案')
@@ -341,19 +343,39 @@ export const supervisionReportService = {
       }
     }
 
+    // 預定完工日期：revisedEndDate > plannedEndDate > 開工+工期 on-the-fly 計算
+    let plannedCompletionDate: string | null = null
+    if (p.revisedEndDate) {
+      plannedCompletionDate = formatDateOnlyUtc(p.revisedEndDate)
+    } else if (p.plannedEndDate) {
+      plannedCompletionDate = formatDateOnlyUtc(p.plannedEndDate)
+    } else if (p.startDate && p.plannedDurationDays) {
+      const d = new Date(p.startDate)
+      d.setUTCDate(d.getUTCDate() + p.plannedDurationDays)
+      plannedCompletionDate = formatDateOnlyUtc(d)
+    }
+
+    // 契約總價 = 原契約工程費 + 原契約設計相關費
+    const originalAmount = p.originalContractAmount
+    const designFeeAmount = p.designFee
+    const contractTotalAmount =
+      originalAmount != null && designFeeAmount != null
+        ? originalAmount.add(designFeeAmount).toString()
+        : originalAmount?.toString() ?? null
+
     return {
       projectName: p.name,
       contractorName: p.contractor ?? '',
       supervisionUnit: p.supervisionUnit ?? '',
       startDate: p.startDate ? formatDateOnlyUtc(p.startDate) : null,
       contractDuration: p.plannedDurationDays ?? null,
-      // 優先用含展延的竣工日，fallback 到原預定完工日
-      plannedCompletionDate: (p.revisedEndDate ?? p.plannedEndDate)
-        ? formatDateOnlyUtc((p.revisedEndDate ?? p.plannedEndDate)!)
-        : null,
+      plannedCompletionDate,
       extensionDays: extensionSum._sum.approvedDays ?? 0,
       contractChangeCount: Math.max(0, pccesCount - 1),
       constructionPlannedProgress,
+      originalContractAmount: originalAmount?.toString() ?? null,
+      designFee: designFeeAmount?.toString() ?? null,
+      contractTotal: contractTotalAmount,
     }
   },
 

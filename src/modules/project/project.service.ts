@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/db.js'
 import { AppError } from '../../shared/errors.js'
 import { notDeleted } from '../../shared/soft-delete.js'
@@ -208,6 +209,12 @@ export const projectService = {
     if (data.siteManager !== undefined) payload.siteManager = data.siteManager ?? null
     if (data.contactPhone !== undefined) payload.contactPhone = data.contactPhone ?? null
     if (data.projectStaff !== undefined) payload.projectStaff = data.projectStaff ?? null
+    if (data.originalContractAmount !== undefined)
+      payload.originalContractAmount =
+        data.originalContractAmount != null ? new Prisma.Decimal(data.originalContractAmount) : null
+    if (data.designFee !== undefined)
+      payload.designFee =
+        data.designFee != null ? new Prisma.Decimal(data.designFee) : null
     const updated = await projectRepository.update(id, payload)
     const sumApprovedDays = await getSumApprovedDays(id)
     return applyComputedDates(updated, sumApprovedDays)
