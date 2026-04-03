@@ -18,7 +18,7 @@ export async function chat(userId: string, message: string, pageContext?: string
   let conv = await aiTutorRepository.findLatestConversation(userId)
   if (!conv) conv = await aiTutorRepository.createConversation(userId)
 
-  const messages = (conv.messages as Message[]) || []
+  const messages = (conv.messages as unknown as Message[]) || []
 
   // Sliding window: last 5 rounds (10 messages)
   const recent = messages.slice(-10)
@@ -54,7 +54,7 @@ export async function chat(userId: string, message: string, pageContext?: string
 export async function getHistory(userId: string) {
   const conv = await aiTutorRepository.findLatestConversation(userId)
   if (!conv) return { messages: [] }
-  return { messages: conv.messages as Message[] }
+  return { messages: conv.messages as unknown as Message[] }
 }
 
 export async function newConversation(userId: string) {
