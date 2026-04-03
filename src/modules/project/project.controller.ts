@@ -85,7 +85,7 @@ export const projectController = {
       'name', 'description', 'code', 'status', 'designUnit', 'supervisionUnit',
       'contractor', 'summary', 'benefits', 'siteManager', 'contactPhone', 'projectStaff',
       'startDate', 'plannedDurationDays', 'plannedEndDate', 'revisedEndDate',
-      'originalContractAmount', 'designFee',
+      'originalContractAmount', 'designFee', 'contractNo', 'ownerAgency',
     ] as const
     const toSnapshot = (p: typeof project) => {
       const out: Record<string, unknown> = {}

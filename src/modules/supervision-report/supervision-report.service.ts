@@ -307,6 +307,8 @@ export const supervisionReportService = {
         name: true,
         contractor: true,
         supervisionUnit: true,
+        contractNo: true,
+        ownerAgency: true,
         startDate: true,
         plannedDurationDays: true,
         plannedEndDate: true,
@@ -367,6 +369,8 @@ export const supervisionReportService = {
       projectName: p.name,
       contractorName: p.contractor ?? '',
       supervisionUnit: p.supervisionUnit ?? '',
+      contractNo: p.contractNo ?? '',
+      ownerAgency: p.ownerAgency ?? '',
       startDate: p.startDate ? formatDateOnlyUtc(p.startDate) : null,
       contractDuration: p.plannedDurationDays ?? null,
       plannedCompletionDate,
@@ -456,13 +460,18 @@ export const supervisionReportService = {
   },
 
   /**
-   * 匯出 Excel：主表（第1頁）+ 完成工程詳細表（第2頁）
-   * 完成工程詳細表顯示全部 PCCES 末層項目，有當日活動的才填本日量
+   * 匯出 Excel：第1頁依公共工程監造日報表官方格式；第2頁完成工程詳細表
    */
   async exportExcel(projectId: string, reportId: string, user: AuthUser): Promise<Buffer> {
     await assertProjectModuleAction(user, projectId, 'construction.supervision', 'read')
     const row = await supervisionReportRepository.findByIdForProject(projectId, reportId)
     if (!row) throw new AppError(404, 'NOT_FOUND', '找不到監造報表')
+
+    // 取得專案資料（監造單位、契約編號、主辦機關）
+    const proj = await prisma.project.findFirst({
+      where: { id: projectId, deletedAt: null },
+      select: { supervisionUnit: true, contractNo: true, ownerAgency: true },
+    })
 
     // 取得全部 PCCES 末層項目以建立完整詳細表
     const latest = await pccesImportRepository.findLatestApprovedImport(projectId)
@@ -512,163 +521,387 @@ export const supervisionReportService = {
     const { default: ExcelJS } = await import('exceljs')
     const workbook = new ExcelJS.Workbook()
 
-    // ===== Sheet 1：公共工程監造報表 =====
-    const ws1 = workbook.addWorksheet('公共工程監造報表')
+    // ===== Sheet 1：公共工程監造日報表（官方格式） =====
+    const ws1 = workbook.addWorksheet('公共工程監造日報表')
+    // 12 欄，對應 A~L
     ws1.columns = [
-      { width: 5 },  // A
-      { width: 14 }, // B
-      { width: 14 }, // C
-      { width: 14 }, // D
-      { width: 14 }, // E
-      { width: 14 }, // F
-      { width: 14 }, // G
+      { width: 12 }, // A
+      { width: 16 }, // B
+      { width: 8  }, // C
+      { width: 12 }, // D
+      { width: 8  }, // E
+      { width: 10 }, // F
+      { width: 12 }, // G
       { width: 14 }, // H
+      { width: 12 }, // I
+      { width: 10 }, // J
+      { width: 12 }, // K
+      { width: 10 }, // L
     ]
 
-    const titleRow = ws1.addRow(['公共工程監造報表'])
-    ws1.mergeCells(titleRow.number, 1, titleRow.number, 8)
-    titleRow.getCell(1).font = { bold: true, size: 16 }
-    titleRow.getCell(1).alignment = { horizontal: 'center' }
-
-    const reportDateStr = formatDateOnlyUtc(row.reportDate)
-
-    ws1.addRow([
-      '本日天氣：',
-      `上午：${row.weatherAm ?? ''}`,
-      '',
-      `下午：${row.weatherPm ?? ''}`,
-      '',
-      '填報日期：',
-      reportDateStr,
-    ])
-    ws1.addRow(['工程名稱', row.projectName])
-    ws1.addRow([
-      '契約工期',
-      row.contractDuration ?? '',
-      '工程開工日期',
-      row.startDate ? formatDateOnlyUtc(row.startDate) : '',
-      '預定完工日期',
-      row.plannedCompletionDate ? formatDateOnlyUtc(row.plannedCompletionDate) : '',
-    ])
-    ws1.addRow([
-      '契約變更次數',
-      row.contractChangeCount ?? '',
-      '次',
-      '工期展延天數',
-      row.extensionDays ?? '',
-      '天',
-    ])
-    ws1.addRow([
-      '原契約工程費：',
-      serializeDecimal(row.originalContractAmount) ?? '',
-      '',
-      '原契約設計相關費：',
-      serializeDecimal(row.designFee) ?? '',
-    ])
-    ws1.addRow([
-      '契約總價：',
-      serializeDecimal(row.contractTotal) ?? '',
-    ])
-    ws1.addRow([
-      '施工預定進度(%)',
-      serializeDecimal(row.constructionPlannedProgress) ?? '',
-      '施工實際進度(%)',
-      serializeDecimal(row.constructionActualProgress) ?? '',
-    ])
-    ws1.addRow([
-      '全案預定進度(%)',
-      serializeDecimal(row.overallPlannedProgress) ?? '',
-      '全案實際進度(%)',
-      serializeDecimal(row.overallActualProgress) ?? '',
-    ])
-
-    ws1.addRow([])
-
-    // 一、工程進行情況
-    ws1.addRow(['一、工程進行情況（含約定之重要施工項目及數量）：'])
-    for (const w of row.workItems) {
-      ws1.addRow([
-        '',
-        w.workItemName,
-        '',
-        `本日：${w.dailyCompletedQty}`,
-        w.unit,
-        `累計：${w.accumulatedCompletedQty}`,
-      ])
+    // 民國年日期格式
+    function toROCDate(isoDate: string | null | undefined): string {
+      if (!isoDate) return ''
+      const d = new Date(isoDate + 'T12:00:00.000Z')
+      if (Number.isNaN(d.getTime())) return isoDate
+      const y = d.getUTCFullYear() - 1911
+      const m = d.getUTCMonth() + 1
+      const day = d.getUTCDate()
+      return `${y}年${m}月${day}日`
     }
-    ws1.addRow([])
 
-    // 二、施工查驗
-    ws1.addRow(['二、監督依照設計圖說及核定施工圖說施工（含約定之檢驗停留點及施工抽查等情形）：'])
+    // 輔助：設定儲存格值並加外框
+    function setCell(
+      ws: typeof ws1,
+      rowNum: number,
+      col: number,
+      value: unknown,
+      opts?: { bold?: boolean; wrapText?: boolean; align?: 'left' | 'center' | 'right' }
+    ) {
+      const cell = ws.getRow(rowNum).getCell(col)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cell.value = value as any
+      if (opts?.bold) cell.font = { bold: true }
+      if (opts?.wrapText || opts?.align) {
+        cell.alignment = {
+          wrapText: opts.wrapText ?? false,
+          vertical: 'top',
+          horizontal: opts.align ?? 'left',
+        }
+      }
+    }
+
+    // 輔助：套用全格外框
+    function applyBorder(ws: typeof ws1, startRow: number, endRow: number, startCol: number, endCol: number) {
+      const thin = { style: 'thin' as const }
+      for (let r = startRow; r <= endRow; r++) {
+        for (let c = startCol; c <= endCol; c++) {
+          const cell = ws.getRow(r).getCell(c)
+          cell.border = {
+            top: thin,
+            left: thin,
+            bottom: thin,
+            right: thin,
+          }
+        }
+      }
+    }
+
+    let r = 1 // 目前列號
+
+    // ── 第1列：監造公司名稱 ──
+    ws1.mergeCells(r, 1, r, 12)
+    setCell(ws1, r, 1, proj?.supervisionUnit ?? '', { bold: true, align: 'center' })
+    ws1.getRow(r).height = 20
+    r++
+
+    // ── 第2列：第一聯 ｜ 公共工程監造日報表 ──
+    setCell(ws1, r, 1, '第一聯')
+    ws1.mergeCells(r, 2, r, 12)
+    setCell(ws1, r, 2, '公共工程監造日報表', { bold: true, align: 'center' })
+    ws1.getRow(r).height = 22
+    r++
+
+    // ── 第3列：天氣 + 填報日期 ──
+    const reportDateROC = toROCDate(formatDateOnlyUtc(row.reportDate))
+    setCell(ws1, r, 1, '本日天氣:上午')
+    setCell(ws1, r, 2, row.weatherAm ?? '')
+    setCell(ws1, r, 3, '下午')
+    setCell(ws1, r, 4, row.weatherPm ?? '')
+    ws1.mergeCells(r, 7, r, 8)
+    setCell(ws1, r, 7, '填報日期:')
+    ws1.mergeCells(r, 9, r, 11)
+    setCell(ws1, r, 9, reportDateROC)
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    // ── 第4列：工程名稱 + 契約編號 ──
+    setCell(ws1, r, 1, '工程名稱')
+    ws1.mergeCells(r, 2, r, 8)
+    setCell(ws1, r, 2, row.projectName)
+    ws1.mergeCells(r, 9, r, 10)
+    setCell(ws1, r, 9, '契約編號')
+    ws1.mergeCells(r, 11, r, 12)
+    setCell(ws1, r, 11, proj?.contractNo ?? '')
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    // ── 第5列：主辦機關 + 契約工期 + 開工日期 + 預定竣工 + 實際竣工 ──
+    setCell(ws1, r, 1, '主辦機關')
+    ws1.mergeCells(r, 2, r, 3)
+    setCell(ws1, r, 2, proj?.ownerAgency ?? '')
+    setCell(ws1, r, 4, '契約工期(註3)')
+    setCell(ws1, r, 5, row.contractDuration ?? '')
+    setCell(ws1, r, 6, '開工日期')
+    setCell(ws1, r, 7, row.startDate ? toROCDate(formatDateOnlyUtc(row.startDate)) : '')
+    setCell(ws1, r, 8, '預定竣工日期(註3)')
+    ws1.mergeCells(r, 9, r, 10)
+    setCell(ws1, r, 9, row.plannedCompletionDate ? toROCDate(formatDateOnlyUtc(row.plannedCompletionDate)) : '')
+    setCell(ws1, r, 11, '實際竣工日期')
+    setCell(ws1, r, 12, row.actualCompletionDate ? toROCDate(formatDateOnlyUtc(row.actualCompletionDate)) : '')
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    // ── 第6列：空行 ──
+    r++
+
+    // ── 第7列：契約變更次數 + 工期展延 + 契約金額（原契約） ──
+    ws1.mergeCells(r, 1, r, 2)
+    setCell(ws1, r, 1, '契約變更次數(註4)')
+    setCell(ws1, r, 3, row.contractChangeCount ?? '')
+    ws1.mergeCells(r, 5, r, 7)
+    setCell(ws1, r, 5, '工期展延天數')
+    setCell(ws1, r, 8, '契約金額')
+    setCell(ws1, r, 9, '原契約：')
+    ws1.mergeCells(r, 11, r, 12)
+    setCell(ws1, r, 11, serializeDecimal(row.originalContractAmount) ? Number(serializeDecimal(row.originalContractAmount)) : '')
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    // ── 第8列：預定進度 + 實際進度 + 變更後契約 ──
+    ws1.mergeCells(r, 1, r, 4)
+    setCell(ws1, r, 1, '預定進度(%)(註5)')
+    const plannedProg = serializeDecimal(row.constructionPlannedProgress)
+    ws1.mergeCells(r, 5, r, 7)
+    setCell(ws1, r, 5, plannedProg ? Number(plannedProg) : '')
+    ws1.mergeCells(r, 8, r, 10)
+    setCell(ws1, r, 8, '實際進度(%)\n(註5)', { wrapText: true })
+    const actualProg = serializeDecimal(row.constructionActualProgress)
+    // 實際進度值：暫借 L 欄顯示（與原契約同欄）
+    setCell(ws1, r, 9, '變更後契約：')
+    ws1.mergeCells(r, 11, r, 12)
+    setCell(ws1, r, 11, serializeDecimal(row.contractTotal) ? Number(serializeDecimal(row.contractTotal)) : '')
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    // ── 第9列：實際進度值補行 ──
+    ws1.mergeCells(r, 1, r, 4)
+    setCell(ws1, r, 1, '實際進度(%)(註5)')
+    ws1.mergeCells(r, 5, r, 7)
+    setCell(ws1, r, 5, actualProg ? Number(actualProg) : '')
+    applyBorder(ws1, r, r, 1, 8)
+    r++
+
+    // ── 空行 ──
+    r++
+
+    // ── 一、工程進行情況 ──
+    ws1.mergeCells(r, 1, r, 12)
+    setCell(ws1, r, 1, '一、工程進行情況（含約定之重要施工項目及數量）：', { bold: true })
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    // 工項表頭
+    const wiHeaderRow = r
+    setCell(ws1, r, 1, '工程項目', { bold: true, align: 'center' })
+    ws1.mergeCells(r, 1, r, 5)
+    setCell(ws1, r, 6, '單位', { bold: true, align: 'center' })
+    setCell(ws1, r, 7, '契約數量', { bold: true, align: 'center' })
+    ws1.mergeCells(r, 7, r, 8)
+    setCell(ws1, r, 9, '本日完成數量', { bold: true, align: 'center' })
+    ws1.mergeCells(r, 9, r, 10)
+    setCell(ws1, r, 11, '累計完成數量', { bold: true, align: 'center' })
+    ws1.mergeCells(r, 11, r, 12)
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    for (const w of row.workItems) {
+      ws1.mergeCells(r, 1, r, 5)
+      setCell(ws1, r, 1, w.workItemName, { wrapText: true })
+      setCell(ws1, r, 6, w.unit, { align: 'center' })
+      ws1.mergeCells(r, 7, r, 8)
+      setCell(ws1, r, 7, w.contractQty ? Number(w.contractQty.toString()) : '', { align: 'right' })
+      ws1.mergeCells(r, 9, r, 10)
+      setCell(ws1, r, 9, w.dailyCompletedQty ? Number(w.dailyCompletedQty.toString()) : '', { align: 'right' })
+      ws1.mergeCells(r, 11, r, 12)
+      setCell(ws1, r, 11, w.accumulatedCompletedQty ? Number(w.accumulatedCompletedQty.toString()) : '', { align: 'right' })
+      applyBorder(ws1, r, r, 1, 12)
+      r++
+    }
+    // 若無工項，至少留一空行
+    if (row.workItems.length === 0) {
+      ws1.mergeCells(r, 1, r, 12)
+      applyBorder(ws1, r, r, 1, 12)
+      r++
+    }
+
+    // 本日重要工作（工項名稱彙整）
+    const importantWork = row.workItems.map((w) => w.workItemName).join('\n')
+    ws1.mergeCells(r, 1, r, 12)
+    setCell(ws1, r, 1, importantWork ? `本日重要工作：${importantWork}` : '本日重要工作：', { wrapText: true })
+    ws1.getRow(r).height = Math.max(30, 15 * Math.max(1, row.workItems.length))
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    // ── 空行 ──
+    r++
+
+    // ── 二、監督施工查驗 ──
+    ws1.mergeCells(r, 1, r, 12)
+    setCell(ws1, r, 1, '二、監督依設計圖說及核定施工圖說施工（含約定之檢驗停留點及施工抽查等情形）：', { bold: true })
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
     const categoryLabel: Record<string, string> = {
       random_check: '【施工不定期抽查】',
       civil: '【土建施工查驗】',
       mep: '【機電施工查驗】',
       deficiency: '【施工不合格缺失】',
     }
+    const insp2Start = r
     for (const cat of ['random_check', 'civil', 'mep', 'deficiency'] as const) {
       const items = row.inspections.filter((i) => i.category === cat)
-      ws1.addRow(['', categoryLabel[cat]])
-      if (items.length === 0) {
-        ws1.addRow(['', '無。'])
-      } else {
-        items.forEach((item, idx) => {
-          ws1.addRow(['', `${idx + 1}. ${item.description}`])
-        })
+      if (items.length === 0) continue
+      ws1.mergeCells(r, 1, r, 12)
+      setCell(ws1, r, 1, categoryLabel[cat], { bold: true })
+      r++
+      for (const item of items) {
+        ws1.mergeCells(r, 1, r, 12)
+        setCell(ws1, r, 1, item.description, { wrapText: true })
+        r++
       }
     }
     if (row.inspectionNotes) {
-      ws1.addRow(['', row.inspectionNotes])
+      ws1.mergeCells(r, 1, r, 12)
+      setCell(ws1, r, 1, row.inspectionNotes, { wrapText: true })
+      r++
     }
-    ws1.addRow([])
+    // 若二節為空，留一空行
+    if (r === insp2Start) {
+      ws1.mergeCells(r, 1, r, 12)
+      r++
+    }
+    applyBorder(ws1, insp2Start, r - 1, 1, 12)
 
-    // 三、材料查核
-    ws1.addRow(['三、查核材料規格及品質（含約定之檢驗停留點、材料設備管制及檢（試）驗等抽驗情形）：'])
+    r++
+
+    // ── 三、材料查核 ──
+    ws1.mergeCells(r, 1, r, 12)
+    setCell(ws1, r, 1, '三、查核材料規格及品質（含約定之檢驗停留點、材料設備管制及檢（試）驗等抽驗情形）：', { bold: true })
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    // 材料表頭
+    ws1.mergeCells(r, 1, r, 2)
+    setCell(ws1, r, 1, '本日取（抽）樣材料項目', { bold: true, align: 'center' })
+    ws1.mergeCells(r, 3, r, 5)
+    setCell(ws1, r, 3, '取（抽）樣位置', { bold: true, align: 'center' })
+    ws1.mergeCells(r, 6, r, 7)
+    setCell(ws1, r, 6, '代表數量', { bold: true, align: 'center' })
+    setCell(ws1, r, 8, '試樣數量', { bold: true, align: 'center' })
+    ws1.mergeCells(r, 9, r, 10)
+    setCell(ws1, r, 9, '設計強度', { bold: true, align: 'center' })
+    ws1.mergeCells(r, 11, r, 12)
+    setCell(ws1, r, 11, '備註(含試樣編號)', { bold: true, align: 'center' })
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
     const matLabel: Record<string, string> = {
       incoming: '【材料進場(取樣送驗)】',
       secondary: '【二級抽驗】',
       joint: '【材料會驗】',
     }
+    const mat3Start = r
     for (const cat of ['incoming', 'secondary', 'joint'] as const) {
       const items = row.materialChecks.filter((i) => i.category === cat)
-      ws1.addRow(['', matLabel[cat]])
-      if (items.length === 0) {
-        ws1.addRow(['', '無。'])
-      } else {
-        items.forEach((item, idx) => {
-          const refStr = item.referenceNo ? `（編號:${item.referenceNo}）` : ''
-          ws1.addRow(['', `${idx + 1}. ${item.description}${refStr}`])
-        })
+      if (items.length === 0) continue
+      ws1.mergeCells(r, 1, r, 12)
+      setCell(ws1, r, 1, matLabel[cat], { bold: true })
+      applyBorder(ws1, r, r, 1, 12)
+      r++
+      for (const item of items) {
+        ws1.mergeCells(r, 1, r, 2)
+        setCell(ws1, r, 1, item.description, { wrapText: true })
+        // 取樣位置、代表數量、試樣數量、設計強度 留空
+        ws1.mergeCells(r, 3, r, 5)
+        ws1.mergeCells(r, 6, r, 7)
+        ws1.mergeCells(r, 9, r, 10)
+        ws1.mergeCells(r, 11, r, 12)
+        setCell(ws1, r, 11, item.referenceNo ?? '')
+        applyBorder(ws1, r, r, 1, 12)
+        r++
       }
     }
     if (row.materialQualityNotes) {
-      ws1.addRow(['', row.materialQualityNotes])
+      ws1.mergeCells(r, 1, r, 12)
+      setCell(ws1, r, 1, row.materialQualityNotes, { wrapText: true })
+      applyBorder(ws1, r, r, 1, 12)
+      r++
     }
-    ws1.addRow([])
-
-    // 四、職安衛生
-    ws1.addRow(['四、督導工地職業安全衛生事項：'])
-    ws1.addRow([
-      '',
-      `（一）施工廠商施工前檢查事項辦理情形：${row.preWorkCheckCompleted ? '☑完成' : '☐未完成'}`,
-    ])
-    if (row.safetyNotes) {
-      ws1.addRow(['', `（二）其他工地安全衛生督導事項：`])
-      ws1.addRow(['', row.safetyNotes])
+    // 若三節為空，留一空行
+    if (r === mat3Start) {
+      ws1.mergeCells(r, 1, r, 12)
+      applyBorder(ws1, r, r, 1, 12)
+      r++
     }
-    ws1.addRow([])
 
-    // 五、其他
-    ws1.addRow(['五、其他約定監造事項（含重要事項紀錄、主辦機關指示及通知廠商辦理事項等）：'])
-    if (row.otherSupervisionNotes) {
-      ws1.addRow(['', row.otherSupervisionNotes])
-    }
-    ws1.addRow([])
+    r++
 
-    ws1.addRow([
-      '監造單位簽章：',
-      row.supervisorSigned ? '（已簽章）' : '（未簽章）',
-    ])
+    // ── 四、職業安全衛生督導 ──
+    ws1.mergeCells(r, 1, r, 12)
+    setCell(ws1, r, 1, '四、督導工地職業安全衛生事項：', { bold: true })
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    ws1.mergeCells(r, 1, r, 7)
+    setCell(ws1, r, 1, '（一）施工廠商施工前檢查事項辦理情形：')
+    ws1.mergeCells(r, 8, r, 10)
+    setCell(ws1, r, 8, row.preWorkCheckCompleted ? '■完成' : '□完成', { align: 'center' })
+    ws1.mergeCells(r, 11, r, 12)
+    setCell(ws1, r, 11, row.preWorkCheckCompleted ? '□未完成' : '■未完成', { align: 'center' })
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    ws1.mergeCells(r, 1, r, 12)
+    setCell(ws1, r, 1, '（二）其他工地安全衛生督導事項：')
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    ws1.mergeCells(r, 1, r, 12)
+    setCell(ws1, r, 1, row.safetyNotes ?? '', { wrapText: true })
+    ws1.getRow(r).height = row.safetyNotes ? Math.max(30, 15 * (row.safetyNotes.split('\n').length)) : 30
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    r++
+
+    // ── 五、其他約定監造事項 ──
+    ws1.mergeCells(r, 1, r, 12)
+    setCell(ws1, r, 1, '五、其他約定監造事項（含重要事項紀錄、主辦機關指示及通知廠商辦理事項等）：', { bold: true })
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    ws1.mergeCells(r, 1, r, 12)
+    setCell(ws1, r, 1, row.otherSupervisionNotes ?? '', { wrapText: true })
+    ws1.getRow(r).height = row.otherSupervisionNotes ? Math.max(30, 15 * (row.otherSupervisionNotes.split('\n').length)) : 30
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    r++
+
+    // ── 監造單位簽章 ──
+    ws1.mergeCells(r, 1, r, 4)
+    setCell(ws1, r, 1, '監造單位簽章：')
+    ws1.mergeCells(r, 5, r, 12)
+    setCell(ws1, r, 5, row.supervisorSigned ? '（已簽章）' : '')
+    applyBorder(ws1, r, r, 1, 12)
+    r++
+
+    r++
+
+    // ── 法規注記 ──
+    ws1.mergeCells(r, 1, r, 12)
+    setCell(ws1, r, 1,
+      '註：1. 本表分為二聯，各機關得依業務需要訂定填報份數，一份留存監造單位隨時備查，一份併估驗詳細表送核。\n' +
+      '2.本表原則應按日填寫，機關另有規定者，從其規定；若屬委外監造之工程，則一律按日填寫。\n' +
+      '3.如已完成辦理契約變更或工期展延，應填寫修正核定後之契約工期與預定竣工日期。\n' +
+      '4.契約變更次數應依「修正契約總價表」內容填寫。\n' +
+      '5.預定進度與實際進度應於每周六及月底估計填寫一次。\n' +
+      '6.各機關得依契約約定事項及參酌業務性質，調整訂定監督項目。\n' +
+      '7.本表不得塗改。',
+      { wrapText: true }
+    )
+    ws1.getRow(r).height = 90
 
     // ===== Sheet 2：完成工程詳細表 =====
     const ws2 = workbook.addWorksheet('完成工程詳細表')
@@ -682,12 +915,10 @@ export const supervisionReportService = {
       { header: '備註', width: 20 },
     ]
 
-    // 表頭
     const headerRow = ws2.getRow(1)
     headerRow.font = { bold: true }
     headerRow.alignment = { horizontal: 'center' }
 
-    // 填入全部 PCCES 末層項目
     for (const leaf of allLeafItems) {
       const match = workItemByPccesId.get(leaf.id)
       const prior = priorMap.get(leaf.id) ?? new Prisma.Decimal(0)
@@ -709,7 +940,6 @@ export const supervisionReportService = {
       ])
     }
 
-    // 加入非 PCCES 綁定的手填工作項目
     const manualItems = row.workItems.filter((w) => !w.pccesItemId)
     for (const w of manualItems) {
       ws2.addRow([

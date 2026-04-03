@@ -400,6 +400,8 @@ model Project {
   projectStaff   String?  @map("project_staff")    // 專案工程人員
   originalContractAmount Decimal? @map("original_contract_amount") @db.Decimal(18, 2) // 原契約工程費
   designFee              Decimal? @map("design_fee") @db.Decimal(18, 2)               // 原契約設計相關費
+  contractNo     String?  @map("contract_no")       // 契約編號
+  ownerAgency    String?  @map("owner_agency")      // 主辦機關
   deletedAt      DateTime? @map("deleted_at")
   deletedById    String?   @map("deleted_by_id")
 

@@ -29,6 +29,8 @@ const projectInfoSchema = z.object({
   projectStaff: z.string().optional().nullable(),
   originalContractAmount: z.string().optional().nullable(), // 原契約工程費（字串傳入，轉 Decimal）
   designFee: z.string().optional().nullable(),              // 原契約設計相關費
+  contractNo: z.string().optional().nullable(),             // 契約編號
+  ownerAgency: z.string().optional().nullable(),            // 主辦機關
 })
 
 export const updateProjectSchema = projectInfoSchema.partial()

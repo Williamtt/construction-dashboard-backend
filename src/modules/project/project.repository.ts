@@ -25,6 +25,8 @@ const projectSelect = {
   projectStaff: true,
   originalContractAmount: true,
   designFee: true,
+  contractNo: true,
+  ownerAgency: true,
 } as const
 
 export type ProjectListItem = {
@@ -50,6 +52,8 @@ export type ProjectListItem = {
   projectStaff: string | null
   originalContractAmount: Prisma.Decimal | null
   designFee: Prisma.Decimal | null
+  contractNo: string | null
+  ownerAgency: string | null
 }
 
 export const projectRepository = {
@@ -144,6 +148,8 @@ export const projectRepository = {
       projectStaff: string | null
       originalContractAmount: Prisma.Decimal | null
       designFee: Prisma.Decimal | null
+      contractNo: string | null
+      ownerAgency: string | null
     }>
   ) {
     return prisma.project.update({
@@ -167,6 +173,8 @@ export const projectRepository = {
         ...(data.projectStaff !== undefined && { projectStaff: data.projectStaff }),
         ...(data.originalContractAmount !== undefined && { originalContractAmount: data.originalContractAmount }),
         ...(data.designFee !== undefined && { designFee: data.designFee }),
+        ...(data.contractNo !== undefined && { contractNo: data.contractNo }),
+        ...(data.ownerAgency !== undefined && { ownerAgency: data.ownerAgency }),
       },
       select: projectSelect,
     }) as Promise<ProjectListItem>

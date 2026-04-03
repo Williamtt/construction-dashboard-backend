@@ -215,6 +215,8 @@ export const projectService = {
     if (data.designFee !== undefined)
       payload.designFee =
         data.designFee != null ? new Prisma.Decimal(data.designFee) : null
+    if (data.contractNo !== undefined) payload.contractNo = data.contractNo ?? null
+    if (data.ownerAgency !== undefined) payload.ownerAgency = data.ownerAgency ?? null
     const updated = await projectRepository.update(id, payload)
     const sumApprovedDays = await getSumApprovedDays(id)
     return applyComputedDates(updated, sumApprovedDays)
