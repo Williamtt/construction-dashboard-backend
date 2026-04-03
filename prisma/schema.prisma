@@ -98,6 +98,8 @@ model User {
   notifications               Notification[]
   reviewedApplications        UserApplicationRequest[] @relation("ApplicationReviewer")
 
+  tutorConversations           TutorConversation[]
+
   @@index([email])
 }
 
@@ -1339,4 +1341,18 @@ model UserApplicationRequest {
   @@index([email])
   @@index([tenantId, status])
   @@map("user_application_requests")
+}
+
+// ---------- AI Tutor 對話紀錄 ----------
+model TutorConversation {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  messages  Json     @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("tutor_conversations")
 }

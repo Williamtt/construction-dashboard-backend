@@ -12,6 +12,7 @@ import { platformAdminRouter } from './platform-admin.js'
 import { alertsRouter } from './alerts.js'
 import { appMetaRouter } from './app-meta.js'
 import { notificationsRouter } from './notifications.js'
+import { aiTutorRouter } from './ai-tutor.js'
 
 export const apiRouter = Router()
 
@@ -32,3 +33,4 @@ apiRouter.use('/admin', authMiddleware, requireAdmin, adminRouter)
 apiRouter.use('/platform-admin', authMiddleware, requirePlatformAdmin, platformAdminRouter)
 apiRouter.use('/alerts', authMiddleware, alertsRouter)
 apiRouter.use('/notifications', authMiddleware, notificationsRouter)
+apiRouter.use('/ai-tutor', authMiddleware, aiTutorRouter)
