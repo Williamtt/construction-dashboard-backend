@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/db.js'
 
 export const aiTutorRepository = {
@@ -17,7 +18,7 @@ export const aiTutorRepository = {
   async updateMessages(id: string, messages: unknown[]) {
     return prisma.tutorConversation.update({
       where: { id },
-      data: { messages },
+      data: { messages: messages as Prisma.InputJsonArray },
     })
   },
 }
