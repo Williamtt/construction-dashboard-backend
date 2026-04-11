@@ -138,8 +138,20 @@ export const fileService = {
       throw new AppError(404, 'NOT_FOUND', '找不到該檔案')
     }
     await ensureProjectFile(att.projectId, user, 'read', att.category)
-    const { stream, contentType } = await storage.getStream(att.storageKey)
-    return { ...att, stream, contentType: contentType ?? att.mimeType }
+    let streamResult: { stream: import('node:stream').Readable; contentType: string | null }
+    try {
+      streamResult = await storage.getStream(att.storageKey)
+    } catch (e: unknown) {
+      const code =
+        e && typeof e === 'object' && 'code' in e ? (e as NodeJS.ErrnoException).code : undefined
+      const name =
+        e && typeof e === 'object' && 'name' in e ? (e as { name: string }).name : ''
+      if (code === 'ENOENT' || name === 'NoSuchKey') {
+        throw new AppError(404, 'FILE_NOT_FOUND', '檔案不存在於儲存空間（可能已被手動移除）')
+      }
+      throw new AppError(500, 'INTERNAL_ERROR', '讀取檔案失敗')
+    }
+    return { ...att, stream: streamResult.stream, contentType: streamResult.contentType ?? att.mimeType }
   },
 
   async getByIdMetadata(id: string, userId: string, user: AuthUser): Promise<AttachmentRecord> {

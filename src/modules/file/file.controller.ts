@@ -65,6 +65,13 @@ export const fileController = {
         `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(meta.fileName)}`
       )
     }
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: '檔案串流失敗' } })
+      } else {
+        res.destroy()
+      }
+    })
     stream.pipe(res)
   },
 

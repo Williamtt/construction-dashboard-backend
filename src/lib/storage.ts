@@ -42,6 +42,13 @@ const localStorage: IStorage = {
 
   async getStream(key: string): Promise<{ stream: Readable; contentType: string | null }> {
     const filePath = resolvePath(key)
+    try {
+      await fs.promises.access(filePath)
+    } catch {
+      const err = new Error(`Local file not found: ${key}`) as NodeJS.ErrnoException
+      err.code = 'ENOENT'
+      throw err
+    }
     const ctPath = contentTypePath(filePath)
     let contentType: string | null = null
     try {

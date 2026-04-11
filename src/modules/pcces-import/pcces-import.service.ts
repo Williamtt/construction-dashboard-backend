@@ -5,10 +5,15 @@ import { assertProjectModuleAction } from '../project-permission/project-permiss
 import { fileService } from '../file/file.service.js'
 import { FILE_CATEGORY_PCCES_XML } from '../../constants/file.js'
 import { prisma } from '../../lib/db.js'
-import { constructionProjectChangeListExcelTemplateAbsPath } from '../../lib/resource-paths.js'
+import {
+  constructionProjectChangeListExcelTemplateAbsPath,
+  pccesBudgetTemplateAbsPath,
+  PCCES_BUDGET_TEMPLATE_FILE,
+} from '../../lib/resource-paths.js'
 import { notDeleted } from '../../shared/soft-delete.js'
 import type { PccesExcelApplyBody } from '../../schemas/pcces-excel-apply.js'
 import { parsePccesXmlBuffer, type ParsedPccesRow } from './pcces-xml-parser.js'
+import { parsePccesXlsBuffer } from './pcces-xls-parser.js'
 import { applyPccesComputedAmounts } from './pcces-amount-rollup.js'
 import { normalizeDecimalInput } from './pcces-decimal.js'
 import {
@@ -114,6 +119,22 @@ function serializeImport(row: {
 }
 
 export const pccesImportService = {
+  /** PCCES 預算書 XLS 匯入範本（`resources/templates/pcces_budget_template.xls`） */
+  async getPccesBudgetTemplateBuffer(): Promise<{ buffer: Buffer; fileName: string }> {
+    const abs = pccesBudgetTemplateAbsPath()
+    try {
+      const buffer = await fs.readFile(abs)
+      return { buffer, fileName: PCCES_BUDGET_TEMPLATE_FILE }
+    } catch (e: unknown) {
+      const code =
+        e && typeof e === 'object' && 'code' in e ? (e as NodeJS.ErrnoException).code : undefined
+      if (code === 'ENOENT') {
+        throw new AppError(404, 'NOT_FOUND', '預算書範本檔尚未提供，請聯絡管理員')
+      }
+      throw new AppError(500, 'INTERNAL_ERROR', '讀取範本失敗')
+    }
+  },
+
   /** 內建工程變更清單 Excel 樣板（`resources/templates/construction_project_change_list.xlsx`） */
   async getConstructionProjectChangeListExcelTemplateBuffer(
     projectId: string,
@@ -220,8 +241,10 @@ export const pccesImportService = {
     await assertProjectModuleAction(user, projectId, 'construction.pcces', 'create')
 
     const lower = originalFileName.toLowerCase()
-    if (!lower.endsWith('.xml')) {
-      throw new AppError(400, 'BAD_REQUEST', '請上傳 .xml 檔案')
+    const isXml = lower.endsWith('.xml')
+    const isXls = lower.endsWith('.xls') || lower.endsWith('.xlsx')
+    if (!isXml && !isXls) {
+      throw new AppError(400, 'BAD_REQUEST', '請上傳 .xml、.xls 或 .xlsx 檔案')
     }
 
     const nextVersion = await pccesImportRepository.getNextVersion(projectId)
@@ -235,7 +258,9 @@ export const pccesImportService = {
       versionLabel = trimmed
     }
 
-    const { documentType, rows } = await parsePccesXmlBuffer(buffer)
+    const { documentType, rows } = isXls
+      ? await parsePccesXlsBuffer(buffer)
+      : await parsePccesXmlBuffer(buffer)
 
     const created = await pccesImportRepository.createImportWithItems(
       projectId,

@@ -19,3 +19,10 @@ export function constructionProjectChangeListExcelTemplateAbsPath(): string {
     CONSTRUCTION_PROJECT_CHANGE_LIST_EXCEL_TEMPLATE_FILE
   )
 }
+
+/** PCCES 預算書 XLS 匯入範本（供使用者下載後填寫並上傳） */
+export const PCCES_BUDGET_TEMPLATE_FILE = 'pcces_budget_template.xls'
+
+export function pccesBudgetTemplateAbsPath(): string {
+  return path.join(process.cwd(), 'resources', 'templates', PCCES_BUDGET_TEMPLATE_FILE)
+}

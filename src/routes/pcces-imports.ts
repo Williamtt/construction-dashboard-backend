@@ -18,6 +18,12 @@ pccesImportsRouter.post(
   asyncHandler(pccesImportController.upload.bind(pccesImportController))
 )
 
+/** GET .../pcces-imports/budget-template — PCCES 預算書 XLS 範本下載；須在 /:importId 前註冊 */
+pccesImportsRouter.get(
+  '/budget-template',
+  asyncHandler(pccesImportController.downloadBudgetTemplate.bind(pccesImportController))
+)
+
 /** GET .../pcces-imports/construction-project-change-list-excel-template — 須在 /:importId 前註冊 */
 pccesImportsRouter.get(
   '/construction-project-change-list-excel-template',
