@@ -365,6 +365,44 @@ export const supervisionReportService = {
         ? originalAmount.add(designFeeAmount).toString()
         : originalAmount?.toString() ?? null
 
+    // 查詢同日施工日誌，提供預填資料
+    let dailyLogPrefill: {
+      weatherAm: string | null
+      weatherPm: string | null
+      constructionActualProgress: string | null
+      workItems: Array<{
+        pccesItemId: string | null
+        workItemName: string
+        unit: string
+        contractQty: string
+        dailyCompletedQty: string
+        remark: string
+      }>
+    } | null = null
+
+    if (reportDate && /^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
+      const reportDateObj = new Date(`${reportDate}T12:00:00.000Z`)
+      const dailyLog = await supervisionReportRepository.findDailyLogByDate(
+        projectId,
+        reportDateObj
+      )
+      if (dailyLog) {
+        dailyLogPrefill = {
+          weatherAm: dailyLog.weatherAm,
+          weatherPm: dailyLog.weatherPm,
+          constructionActualProgress: serializeDecimal(dailyLog.actualProgress),
+          workItems: dailyLog.workItems.map((w) => ({
+            pccesItemId: w.pccesItemId,
+            workItemName: w.workItemName,
+            unit: w.unit,
+            contractQty: w.contractQty.toString(),
+            dailyCompletedQty: w.dailyQty.toString(),
+            remark: w.remark,
+          })),
+        }
+      }
+    }
+
     return {
       projectName: p.name,
       contractorName: p.contractor ?? '',
@@ -380,6 +418,7 @@ export const supervisionReportService = {
       originalContractAmount: originalAmount?.toString() ?? null,
       designFee: designFeeAmount?.toString() ?? null,
       contractTotal: contractTotalAmount,
+      dailyLogPrefill,
     }
   },
 

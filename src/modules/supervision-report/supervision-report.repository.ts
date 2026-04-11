@@ -334,6 +334,20 @@ export const supervisionReportRepository = {
     return map
   },
 
+  /**
+   * 查詢指定日期的施工日誌（含工項），用於預填監造報表。
+   * 若同日有多筆，取最近更新的一筆。
+   */
+  async findDailyLogByDate(projectId: string, logDate: Date) {
+    return prisma.constructionDailyLog.findFirst({
+      where: { projectId, logDate, ...notDeleted },
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        workItems: { orderBy: { sortOrder: 'asc' } },
+      },
+    })
+  },
+
   async softDelete(projectId: string, reportId: string, deletedById: string): Promise<boolean> {
     const existing = await prisma.supervisionReport.findFirst({
       where: { id: reportId, projectId, ...notDeleted },
