@@ -21,6 +21,7 @@ import {
   toDecimalOrNull,
 } from './project-progress.repository.js'
 import { plannedCumulativeSeries } from './planned-cumulative-series.js'
+import { supervisionReportRepository } from '../supervision-report/supervision-report.repository.js'
 
 function formatDateOnlyUtc(d: Date): string {
   const y = d.getUTCFullYear()
@@ -80,11 +81,22 @@ export const projectProgressService = {
       if (!compare) throw new AppError(404, 'NOT_FOUND', '找不到比較計畫版本')
     }
 
-    const actualRows = await projectProgressRepository.listActuals(projectId)
+    const [actualRows, supervisionRows] = await Promise.all([
+      projectProgressRepository.listActuals(projectId),
+      supervisionReportRepository.listConstructionProgressByProject(projectId),
+    ])
     const actualByDate = new Map<string, (typeof actualRows)[0]>()
     for (const a of actualRows) {
       actualByDate.set(formatDateOnlyUtc(a.periodDate), a)
     }
+
+    // 監造報表按日期排序，用於對應每期的施工實際進度
+    const svRows = supervisionRows
+      .filter((r) => r.constructionActualProgress != null)
+      .map((r) => ({
+        date: formatDateOnlyUtc(r.reportDate),
+        value: r.constructionActualProgress!.toString(),
+      }))
 
     const primaryEntries = primary?.entries ?? []
     const compareByDate = new Map<string, (typeof primaryEntries)[0]>()
@@ -112,8 +124,23 @@ export const projectProgressService = {
       })
     )
 
+    // 用 running pointer 將監造報表對應到每期（兩者皆已按日期排序）
+    let svPtr = 0
+    const svCumByPeriod: (string | null)[] = []
+    for (const d of periodDates) {
+      while (svPtr < svRows.length && svRows[svPtr]!.date <= d) svPtr++
+      // svPtr 現在指向第一筆 > d 的，所以 svPtr-1 是 ≤ d 的最後一筆
+      svCumByPeriod.push(svPtr > 0 ? svRows[svPtr - 1]!.value : null)
+    }
+
     const periods = primaryEntries.map((e, i) => {
       const d = formatDateOnlyUtc(e.periodDate)
+      const svCum = svCumByPeriod[i] ?? null
+      const svPrevCum = i > 0 ? svCumByPeriod[i - 1] ?? null : null
+      const svPeriod =
+        svCum != null
+          ? String(Number(svCum) - (svPrevCum != null ? Number(svPrevCum) : 0))
+          : null
       return {
         periodDate: d,
         periodIndex: e.periodIndex,
@@ -123,6 +150,8 @@ export const projectProgressService = {
         cumulativePlannedCompare: compare ? cumCompare[i] ?? '0' : null,
         periodActual: decStr(actualByDate.get(d)?.periodProgressPercent ?? null),
         cumulativeActual: decStr(actualByDate.get(d)?.cumulativeProgressPercent ?? null) ?? '',
+        supervisionPeriodActual: svPeriod,
+        supervisionCumulativeActual: svCum,
         isLocked: e.isLocked,
         isExtended: e.isExtended,
       }

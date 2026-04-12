@@ -348,6 +348,15 @@ export const supervisionReportRepository = {
     })
   },
 
+  /** 查詢專案所有監造報表的施工實際進度，供進度表 dashboard 參考欄位使用。 */
+  async listConstructionProgressByProject(projectId: string) {
+    return prisma.supervisionReport.findMany({
+      where: { projectId, ...notDeleted },
+      select: { reportDate: true, constructionActualProgress: true },
+      orderBy: { reportDate: 'asc' },
+    })
+  },
+
   async softDelete(projectId: string, reportId: string, deletedById: string): Promise<boolean> {
     const existing = await prisma.supervisionReport.findFirst({
       where: { id: reportId, projectId, ...notDeleted },
