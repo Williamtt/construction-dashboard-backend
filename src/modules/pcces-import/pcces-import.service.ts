@@ -73,6 +73,12 @@ function pccesDbRowToParsed(r: PccesItem): ParsedPccesRow {
   }
 }
 
+function decimalStringsEqual(a: string, b: string): boolean {
+  const na = Number(a.trim().replace(/,/g, ''))
+  const nb = Number(b.trim().replace(/,/g, ''))
+  return Number.isFinite(na) && Number.isFinite(nb) && Math.abs(na - nb) < 1e-9
+}
+
 async function getNextPccesVersionTx(
   tx: Prisma.TransactionClient,
   projectId: string
@@ -388,7 +394,11 @@ export const pccesImportService = {
       if (!leafKeys.has(a.itemKey)) {
         throw new AppError(400, 'BAD_REQUEST', `僅能變更葉節點工項（itemKey ${a.itemKey}）`)
       }
-      if (a.newQuantity?.trim() && !allowsUserEnteredQtyForPccesItemKind(baseItem.itemKind)) {
+      if (
+        a.newQuantity?.trim() &&
+        !allowsUserEnteredQtyForPccesItemKind(baseItem.itemKind) &&
+        !decimalStringsEqual(a.newQuantity, baseItem.quantity.toString())
+      ) {
         throw new AppError(
           400,
           'PCCES_QTY_KIND',
