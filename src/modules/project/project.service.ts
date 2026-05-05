@@ -28,10 +28,10 @@ function parseDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-/** 開工日 + 天數 → 該日 23:59:59 同日（僅日期部分加天數） */
+/** 開工日 + 工期 → 完工日（含開工日，故 +days-1；與 WBS toEndDate 邏輯一致） */
 function addDays(date: Date, days: number): Date {
   const out = new Date(date)
-  out.setDate(out.getDate() + days)
+  out.setDate(out.getDate() + days - 1)
   return out
 }
 
