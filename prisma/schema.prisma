@@ -73,6 +73,8 @@ model User {
   updatedAt         DateTime   @updatedAt
   deletedAt         DateTime?  @map("deleted_at")
   deletedById       String?    @map("deleted_by_id")
+  passwordResetToken    String?   @unique @map("password_reset_token")
+  passwordResetTokenExp DateTime? @map("password_reset_token_exp")
 
   tenant            Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   projectMembers    ProjectMember[]

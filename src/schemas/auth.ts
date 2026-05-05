@@ -14,6 +14,17 @@ export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(20, '無效的 refresh token'),
 })
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().email('請輸入有效 Email'),
+})
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(20, '無效的 token'),
+  newPassword: z.string().min(6, '新密碼至少 6 碼'),
+})
+
 export type LoginBody = z.infer<typeof loginSchema>
 export type ChangePasswordBody = z.infer<typeof changePasswordSchema>
 export type RefreshTokenBody = z.infer<typeof refreshTokenSchema>
+export type ForgotPasswordBody = z.infer<typeof forgotPasswordSchema>
+export type ResetPasswordBody = z.infer<typeof resetPasswordSchema>

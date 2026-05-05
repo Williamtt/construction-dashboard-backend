@@ -5,11 +5,12 @@ import bcrypt from 'bcrypt'
 import crypto from 'crypto'
 import { prisma } from '../lib/db.js'
 import { storage } from '../lib/storage.js'
-import { loginSchema, changePasswordSchema, refreshTokenSchema } from '../schemas/auth.js'
+import { loginSchema, changePasswordSchema, refreshTokenSchema, forgotPasswordSchema, resetPasswordSchema } from '../schemas/auth.js'
 import { submitApplicationSchema } from '../schemas/application.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { AppError } from '../shared/errors.js'
 import { recordAuditMutation } from '../modules/audit-log/audit-log.service.js'
+import { sendPasswordResetEmail } from '../lib/email.js'
 import { asyncHandler } from '../shared/utils/async-handler.js'
 import { loginLogRepository } from '../modules/login-log/login-log.repository.js'
 import { userApplicationService } from '../modules/user-application/user-application.service.js'
@@ -362,6 +363,87 @@ authRouter.post('/refresh', async (req: Request, res: Response) => {
     })
   }
 })
+
+const forgotPasswordRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      error: { code: 'TOO_MANY_REQUESTS', message: '申請次數過多，請於 1 小時後再試' },
+    })
+  },
+})
+
+/** POST /api/v1/auth/forgot-password — 申請密碼重設，寄送重設連結至 Email（公開，無需登入） */
+authRouter.post(
+  '/forgot-password',
+  forgotPasswordRateLimiter,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = forgotPasswordSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: parsed.error.errors[0]?.message ?? '欄位驗證失敗' },
+      })
+      return
+    }
+    const email = parsed.data.email.toLowerCase()
+    const user = await prisma.user.findFirst({
+      where: { email, deletedAt: null, status: { not: 'suspended' } },
+      select: { id: true, email: true, name: true },
+    })
+    if (user) {
+      const tokenRaw = crypto.randomBytes(32).toString('hex')
+      const tokenHash = hashRefreshToken(tokenRaw)
+      const tokenExp = new Date(Date.now() + 60 * 60 * 1000)
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordResetToken: tokenHash, passwordResetTokenExp: tokenExp },
+      })
+      const resetUrl = `${process.env.FRONTEND_URL ?? 'http://localhost:5175'}/reset-password?token=${tokenRaw}`
+      sendPasswordResetEmail(user.email, user.name ?? user.email, resetUrl).catch(
+        (e) => console.error('sendPasswordResetEmail', e)
+      )
+    }
+    res.status(200).json({
+      data: { message: '如果此 Email 已登錄，重設連結已寄出，請檢查信箱（含垃圾信件匣）' },
+    })
+  })
+)
+
+/** POST /api/v1/auth/reset-password — 以 token 重設密碼（公開，無需登入） */
+authRouter.post(
+  '/reset-password',
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = resetPasswordSchema.safeParse(req.body)
+    if (!parsed.success) {
+      res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: parsed.error.errors[0]?.message ?? '欄位驗證失敗' },
+      })
+      return
+    }
+    const tokenHash = hashRefreshToken(parsed.data.token)
+    const user = await prisma.user.findFirst({
+      where: {
+        passwordResetToken: tokenHash,
+        passwordResetTokenExp: { gt: new Date() },
+        deletedAt: null,
+      },
+      select: { id: true },
+    })
+    if (!user) {
+      throw new AppError(400, 'INVALID_TOKEN', '重設連結無效或已過期，請重新申請')
+    }
+    const passwordHash = await bcrypt.hash(parsed.data.newPassword, 10)
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash, passwordResetToken: null, passwordResetTokenExp: null },
+    })
+    await prisma.refreshToken.deleteMany({ where: { userId: user.id } })
+    res.status(200).json({ data: { ok: true } })
+  })
+)
 
 /** POST /api/v1/auth/logout — 撤銷該使用者所有 refresh token（access 仍須客戶端丟棄） */
 authRouter.post(

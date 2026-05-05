@@ -73,6 +73,34 @@ export async function sendApprovalEmail(to: string, name: string): Promise<void>
   })
 }
 
+/** 密碼重設信 */
+export async function sendPasswordResetEmail(
+  to: string,
+  name: string,
+  resetUrl: string
+): Promise<void> {
+  await sendEmail({
+    to,
+    subject: '密碼重設請求 - EAGLE 2.0',
+    html: `
+      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+        <h2>密碼重設</h2>
+        <p>${name} 您好，</p>
+        <p>我們收到您的密碼重設請求。請點擊下方連結設定新密碼：</p>
+        <p style="margin: 24px 0;">
+          <a href="${resetUrl}" style="background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none;">
+            重設密碼
+          </a>
+        </p>
+        <p style="color: #6b7280; font-size: 14px;">
+          此連結將於 <strong>1 小時</strong>後失效。<br>
+          如果您沒有申請重設密碼，請忽略此信，您的帳號不受影響。
+        </p>
+      </div>
+    `,
+  })
+}
+
 /** 拒絕通知信 */
 export async function sendRejectionEmail(
   to: string,
